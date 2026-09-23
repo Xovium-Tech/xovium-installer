@@ -1,0 +1,27 @@
+[package]
+version = "1.0.0"
+title = "PX4 Native Camera"
+category = "Simulation"
+
+[dependencies]
+"omni.usd" = {}
+"omni.hydra.rtx" = {}
+"omni.graph.core" = {}
+"omni.graph.action" = {}
+"omni.graph.nodes" = {}
+"omni.syntheticdata" = {}
+
+[[native.plugin]]
+path = "bin/*.plugin"
+
+[settings.px4.camera]
+enabled = true
+path = "/World/Aircraft/OnboardCamera"
+host = "127.0.0.1"
+port = 5600
+width = 640
+height = 480
+fps = 30
+bitrate = 4000
+encoder = "x264"
+snapshot = ""

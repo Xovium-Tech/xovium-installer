@@ -1,0 +1,17 @@
+[package]
+version = "1.0.0"
+title = "PX4 Native Fixed Wing"
+[dependencies]
+"omni.usd" = {}
+"omni.physx" = {}
+[[native.plugin]]
+path = "bin/*.plugin"
+[settings.px4.flight]
+modelPath = "/World/Aircraft"
+instance = 0
+latitude = 47.397742
+longitude = 8.545594
+altitude = 489.4
+duration = 0.0
+physicsCheck = false
+externalTick = false

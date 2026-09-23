@@ -1,0 +1,62 @@
+{
+  "name": "Generic RC fixed-wing",
+  "mass_kg": 1.5,
+  "inertia_kg_m2": [0.19, 0.08, 0.25],
+  "wing_area_m2": 0.45,
+  "wingspan_m": 1.5,
+  "mean_chord_m": 0.3,
+  "coefficients": {
+    "cl_zero": 0.25,
+    "cl_alpha": 4.8,
+    "cl_max": 1.3,
+    "cl_post_stall": 1.1,
+    "stall_start_deg": 12.0,
+    "stall_end_deg": 22.0,
+    "cd_zero": 0.035,
+    "cd_induced": 0.065,
+    "cd_post_stall": 1.65,
+    "cd_reverse": 0.1,
+    "cy_beta": -0.65,
+    "cy_rudder": -0.1,
+    "roll_beta": -0.08,
+    "roll_p": -0.45,
+    "roll_r": 0.05,
+    "roll_aileron": 0.12,
+    "pitch_zero": 0.0,
+    "pitch_alpha": -0.7,
+    "pitch_q": -12.0,
+    "pitch_elevator": 0.8,
+    "yaw_beta": 0.12,
+    "yaw_p": -0.02,
+    "yaw_r": -0.2,
+    "yaw_rudder": 0.1
+  },
+  "propulsion": {
+    "max_thrust_n": 12.0,
+    "zero_thrust_speed_m_s": 32.0
+  },
+  "actuators": {
+    "servo_time_constant_s": 0.06,
+    "servo_rate_per_s": 6.0,
+    "motor_time_constant_s": 0.15,
+    "motor_rate_per_s": 3.0
+  },
+  "actuator_channels": {
+    "aileron": 0,
+    "elevator": 1,
+    "rudder": 2,
+    "throttle": 3
+  },
+  "spawn": {
+    "position_enu_m": [0.0, 0.0, 0.31],
+    "heading_deg": 0.0
+  },
+  "wind_enu_m_s": [0.0, 0.0, 0.0],
+  "sensors": {
+    "accel_noise_std_m_s2": 0.02,
+    "gyro_noise_std_rad_s": 0.001,
+    "mag_noise_std_gauss": 0.0005,
+    "baro_noise_std_hpa": 0.01,
+    "magnetic_field_ned_gauss": [0.215, 0.011, 0.427]
+  }
+}

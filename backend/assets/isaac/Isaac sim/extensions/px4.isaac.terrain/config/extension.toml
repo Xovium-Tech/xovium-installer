@@ -1,0 +1,32 @@
+[package]
+title = "PX4 Native Streamed Terrain"
+version = "1.0.0"
+description = "Native C++ terrain streaming, textures, collision meshes and local tile cache."
+category = "Simulation"
+
+[dependencies]
+"omni.usd" = {}
+"omni.physx" = {}
+
+[[native.plugin]]
+path = "bin/*.plugin"
+recursive = false
+
+[settings.px4.terrain]
+enabled = true
+targetPath = "/World/Aircraft"
+source = "procedural"
+cacheDirectory = ""
+imageryUrl = ""
+elevationUrl = ""
+imageryExtension = "png"
+originLatitude = 47.397742
+originLongitude = 8.545594
+originAltitude = 489.4
+tileSize = 256.0
+syntheticHeight = 25.0
+seed = 7
+zoom = 14
+radius = 1
+meshCells = 32
+collision = true

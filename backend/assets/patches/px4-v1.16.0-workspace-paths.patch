@@ -1,0 +1,17 @@
+--- a/src/modules/simulation/gz_bridge/gz_env.sh.in
++++ b/src/modules/simulation/gz_bridge/gz_env.sh.in
+@@ -11,10 +11,10 @@
+ # https://gazebosim.org/api/sim/8/server_config.html
+ # -----------------------------------------------------------------------
+ 
+-export PX4_GZ_MODELS=@PX4_SOURCE_DIR@/Tools/simulation/gz/models
+-export PX4_GZ_WORLDS=@PX4_SOURCE_DIR@/Tools/simulation/gz/worlds
+-export PX4_GZ_PLUGINS=@PX4_BINARY_DIR@/src/modules/simulation/gz_plugins
+-export PX4_GZ_SERVER_CONFIG=@PX4_SOURCE_DIR@/src/modules/simulation/gz_bridge/server.config
++export PX4_GZ_MODELS="${PX4_GZ_MODELS:-@PX4_SOURCE_DIR@/Tools/simulation/gz/models}"
++export PX4_GZ_WORLDS="${PX4_GZ_WORLDS:-@PX4_SOURCE_DIR@/Tools/simulation/gz/worlds}"
++export PX4_GZ_PLUGINS="${PX4_GZ_PLUGINS:-@PX4_BINARY_DIR@/src/modules/simulation/gz_plugins}"
++export PX4_GZ_SERVER_CONFIG="${PX4_GZ_SERVER_CONFIG:-@PX4_SOURCE_DIR@/src/modules/simulation/gz_bridge/server.config}"
+ 
+ export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:$PX4_GZ_MODELS:$PX4_GZ_WORLDS
+ export GZ_SIM_SYSTEM_PLUGIN_PATH=$GZ_SIM_SYSTEM_PLUGIN_PATH:$PX4_GZ_PLUGINS

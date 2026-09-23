@@ -1,0 +1,9 @@
+.xovium/
+.xovium.lock
+.xovium-location.json
+.xovium-location.tmp
+.xovium-move.json
+.xovium-move.tmp
+__pycache__/
+*.pyc
+assets/runtime/scripts/local.env

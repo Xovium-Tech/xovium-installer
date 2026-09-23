@@ -1,0 +1,14 @@
+{
+  "scripts/run_sim.sh": [
+    [
+      "$RUNTIME_DIR/px4-$PX4_INSTANCE.log",
+      "${XOVIUM_PX4_LOG:-$RUNTIME_DIR/px4-$PX4_INSTANCE.log}"
+    ]
+  ],
+  "scripts/run_unreal.sh": [
+    [
+      "-abslog=$RUNTIME_DIR/unreal-$PX4_INSTANCE.log",
+      "-abslog=${XOVIUM_UNREAL_LOG:-$RUNTIME_DIR/unreal-$PX4_INSTANCE.log}"
+    ]
+  ]
+}

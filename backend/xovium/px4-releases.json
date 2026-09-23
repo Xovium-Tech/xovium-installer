@@ -1,0 +1,78 @@
+{
+  "reviewed": "2026-09-20",
+  "default": "1.16.0",
+  "releases": [
+    {
+      "version": "1.16.0",
+      "commit": "6ea3539157ca358c70a515878b77077af7d4611d",
+      "harmonic": "native",
+      "jetty": "adapter",
+      "legacy_models": false,
+      "native_bridges": true
+    },
+    {
+      "version": "1.17.0",
+      "commit": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+      "harmonic": "native",
+      "jetty": "native",
+      "legacy_models": false,
+      "native_bridges": true
+    },
+    {
+      "version": "1.16.2",
+      "commit": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "harmonic": "native",
+      "jetty": "adapter",
+      "legacy_models": false,
+      "native_bridges": true
+    },
+    {
+      "version": "1.16.1",
+      "commit": "94cb2012792b2ae89f0b147cfee53ee31ae550be",
+      "harmonic": "native",
+      "jetty": "adapter",
+      "legacy_models": false,
+      "native_bridges": true
+    },
+    {
+      "version": "1.15.4",
+      "commit": "99c40407ffd7ac184e2d7b4b293f36f10fe561ef",
+      "harmonic": "native",
+      "jetty": "unsupported",
+      "legacy_models": true,
+      "native_bridges": true
+    },
+    {
+      "version": "1.15.3",
+      "commit": "80171359656faf881dc643022f61ebde734d7cb6",
+      "harmonic": "native",
+      "jetty": "unsupported",
+      "legacy_models": true,
+      "native_bridges": true
+    },
+    {
+      "version": "1.15.2",
+      "commit": "4817c0618a1286846116e90c6eb8919efaa013cf",
+      "harmonic": "native",
+      "jetty": "unsupported",
+      "legacy_models": true,
+      "native_bridges": true
+    },
+    {
+      "version": "1.15.1",
+      "commit": "93eef0c78719a9ac972d46593262c76c978ed3c4",
+      "harmonic": "native",
+      "jetty": "unsupported",
+      "legacy_models": true,
+      "native_bridges": true
+    },
+    {
+      "version": "1.15.0",
+      "commit": "30e763b6780061d70a14894e3e8b06e6a656f9b8",
+      "harmonic": "native",
+      "jetty": "unsupported",
+      "legacy_models": true,
+      "native_bridges": true
+    }
+  ]
+}

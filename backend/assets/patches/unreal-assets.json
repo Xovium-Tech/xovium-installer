@@ -1,0 +1,80 @@
+{
+  "scripts/run_unreal.sh": [
+    [
+      "[[ -f $UE_PROJECT ]] || die \"Unreal project missing: $UE_PROJECT\"\n[[ -f $PROJECT_ROOT/Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so ]] || die 'Build the project first: ./scripts/build_unreal.sh'\nmkdir -p -- \"$RUNTIME_DIR\"\nargs=(\"$UE_PROJECT\" '/Engine/Maps/Entry?game=/Script/PX4Unreal.PX4GameMode'\n    -unattended -log -nosound \"-abslog=$RUNTIME_DIR/unreal-$PX4_INSTANCE.log\"\n    \"-PX4Port=$((4560 + PX4_INSTANCE))\" \"-SimHz=$SIM_HZ\" \"-SimSpeed=$SIM_SPEED\"\n    \"-PX4Timeout=$PX4_TIMEOUT\" \"-PX4StartupTimeout=$PX4_STARTUP_TIMEOUT\")\nargs+=(-game)\ncase \"$render_mode\" in\n    headless) args+=(-nullrhi) ;;\n    offscreen) args+=(-RenderOffscreen -vulkan) ;;\n",
+      "[[ -f $UE_PROJECT ]] || die \"Unreal project missing: $UE_PROJECT\"\n[[ -f $PROJECT_ROOT/Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so ]] || die 'Build the project first: ./scripts/build_unreal.sh'\nmkdir -p -- \"$RUNTIME_DIR\"\nargs=(\"$UE_PROJECT\" \"${XOVIUM_UE_WORLD:-/Engine/Maps/Entry}?game=/Script/PX4Unreal.PX4GameMode\"\n    -unattended -log -nosound \"-abslog=$RUNTIME_DIR/unreal-$PX4_INSTANCE.log\"\n    \"-PX4Port=$((4560 + PX4_INSTANCE))\" \"-SimHz=$SIM_HZ\" \"-SimSpeed=$SIM_SPEED\"\n    \"-PX4Timeout=$PX4_TIMEOUT\" \"-PX4StartupTimeout=$PX4_STARTUP_TIMEOUT\")\nargs+=(-game)\n[[ -z ${XOVIUM_UE_WORLD:-} ]] || args+=(-PX4CustomWorld)\n[[ -z ${XOVIUM_UE_MODEL:-} ]] || args+=(\"-PX4Model=$XOVIUM_UE_MODEL\")\ncase \"$render_mode\" in\n    headless) args+=(-nullrhi) ;;\n    offscreen) args+=(-RenderOffscreen -vulkan) ;;\n"
+    ],
+    [
+      "    normal) args+=(-vulkan) ;;",
+      "    normal) args+=(-vulkan -windowed -ResX=1280 -ResY=720) ;;"
+    ],
+    [
+      "Run the compiled fixed-wing simulator; start ./run_px4.sh in another terminal.",
+      "Run the compiled fixed-wing simulator; start ./run_px4.sh in another terminal.\nVisible simulation starts in a 1280x720 window."
+    ]
+  ],
+  "Unreal/Source/PX4Unreal/Private/PX4GameMode.cpp": [
+    [
+      "#include \"Materials/MaterialInstanceDynamic.h\"\n#include \"Materials/MaterialInterface.h\"\n#include \"PX4Plane.h\"\n\nAPX4GameMode::APX4GameMode()\n{\n",
+      "#include \"Materials/MaterialInstanceDynamic.h\"\n#include \"Materials/MaterialInterface.h\"\n#include \"PX4Plane.h\"\n#include \"Misc/CommandLine.h\"\n#include \"Misc/Parse.h\"\n\nAPX4GameMode::APX4GameMode()\n{\n"
+    ],
+    [
+      "    GetWorld()->GetWorldSettings()->KillZ = -10000000.0f;\n    GetWorld()->GetWorldSettings()->bGlobalGravitySet = true;\n    GetWorld()->GetWorldSettings()->GlobalGravityZ = -980.665f;\n    BuildEnvironment();\n\n    FActorSpawnParameters Parameters;\n    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;\n",
+      "    GetWorld()->GetWorldSettings()->KillZ = -10000000.0f;\n    GetWorld()->GetWorldSettings()->bGlobalGravitySet = true;\n    GetWorld()->GetWorldSettings()->GlobalGravityZ = -980.665f;\n    if (!FParse::Param(FCommandLine::Get(), TEXT(\"PX4CustomWorld\"))) BuildEnvironment();\n\n    FActorSpawnParameters Parameters;\n    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;\n"
+    ]
+  ],
+  "Unreal/Source/PX4Unreal/Private/PX4Plane.cpp": [
+    [
+      "        }\n    }\n\n    std::string Error;\n    if (!Link.listen(Port, Error))\n    {\n",
+      "        }\n    }\n\n    FString CustomModel;\n    if (FParse::Value(FCommandLine::Get(), TEXT(\"PX4Model=\"), CustomModel))\n    {\n        UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *CustomModel);\n        if (!Mesh) { Fail(TEXT(\"Cannot load the selected aircraft static mesh.\")); return; }\n        for (const auto& Visual : Visuals) Visual->SetVisibility(false);\n        auto* CustomVisual = NewObject<UStaticMeshComponent>(this, TEXT(\"CustomAircraftVisual\"));\n        AddInstanceComponent(CustomVisual);\n        CustomVisual->SetupAttachment(Body);\n        CustomVisual->SetMobility(EComponentMobility::Movable);\n        CustomVisual->SetStaticMesh(Mesh);\n        CustomVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);\n        CustomVisual->RegisterComponent();\n        UE_LOG(LogPX4Plane, Display, TEXT(\"Custom aircraft mesh: %s\"), *CustomModel);\n    }\n\n    std::string Error;\n    if (!Link.listen(Port, Error))\n    {\n"
+    ]
+  ],
+  "tools/prepare_px4.py": [
+    [
+      "    return startup, mavlink",
+      "    if router:\n        mavlink = replace_line(mavlink, \"mavlink start -x -u $udp_gcs_port_local -r 4000000 -f\", \"mavlink start -x -u $udp_gcs_port_local -r 4000000 -f -o ${XOVIUM_ROUTER_PX4_PORT:-14550}\", \"px4-rc.mavlink\")\n    return startup, mavlink"
+    ],
+    [
+      "    startup = replace_line(startup, DDS_ANCHOR, '# DDS client omitted: this simulator uses MAVLink.', \"rcS\")",
+      "    dds_anchor = DDS_ANCHOR if DDS_ANCHOR in startup.splitlines() else \"uxrce_dds_client start -t udp -p $uxrce_dds_port $uxrce_dds_ns\"\n    startup = replace_line(startup, dds_anchor, '# DDS client omitted: this simulator uses MAVLink.', \"rcS\")"
+    ],
+    [
+      "PX4 v1.16 startup",
+      "PX4 1.15\u20131.17 startup"
+    ],
+    [
+      "Use PX4 v1.16.",
+      "Repair the selected PX4 release in the installer kit."
+    ]
+  ],
+  "scripts/run_px4.sh": [
+    [
+      "printf '%s\\n' 'Actuator channels: 0 aileron, 1 elevator, 2 rudder, 3 throttle. QGroundControl: UDP 14550.'",
+      "printf '%s\\n' 'Actuator channels: 0 aileron, 1 elevator, 2 rudder, 3 throttle.'"
+    ],
+    [
+      "    printf '%s\\n' 'Offboard connection is delegated to your MAVLink router.'",
+      "    printf 'MAVLink router: UDP %s; QGC/app: use router endpoints.\\n' \"${XOVIUM_ROUTER_PX4_PORT:-14550}\""
+    ],
+    [
+      "if [[ -d \"$PX4_ROOT/.git\" || -f \"$PX4_ROOT/.git\" ]]; then\n    version=\"$(git -C \"$PX4_ROOT\" describe --tags --always 2>/dev/null || true)\"\n    if [[ ! \"$version\" =~ ^v1\\.16(\\.|$) ]]; then\n        printf 'Expected PX4 v1.16 source; found %s in %s.\\n' \"$version\" \"$PX4_ROOT\" >&2\n        exit 1\n    fi\nfi",
+      "expected_commit='@XOVIUM_PX4_COMMIT@'\nactual_commit=\"$(git -C \"$PX4_ROOT\" rev-parse HEAD 2>/dev/null || true)\"\nif [[ \"$actual_commit\" != \"$expected_commit\" ]]; then\n    printf 'Expected managed PX4 @XOVIUM_PX4_VERSION@ (%s); found %s in %s.\\n' \"$expected_commit\" \"${actual_commit:-no Git checkout}\" \"$PX4_ROOT\" >&2\n    exit 1\nfi"
+    ],
+    [
+      "PX4 v1.16 checkout",
+      "Managed PX4 checkout selected in the installer"
+    ],
+    [
+      "validated PX4 v1.16 lockstep integration",
+      "PX4 lockstep integration"
+    ],
+    [
+      "PX4 v1.16 SITL build is missing at %s. Run ./install.sh --px4-only.",
+      "PX4 SITL build is missing at %s. Repair PX4 in the installer kit."
+    ],
+    [
+      "PX4 v1.16: Unreal physics/sensors",
+      "PX4: Unreal physics/sensors"
+    ]
+  ]
+}

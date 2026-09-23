@@ -1,0 +1,9 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "Category": "Simulation",
+  "Description": "PX4 fixed-wing SITL with Unreal Chaos physics and MAVLink sensors",
+  "Modules": [
+    { "Name": "PX4Unreal", "Type": "Runtime", "LoadingPhase": "Default" }
+  ]
+}

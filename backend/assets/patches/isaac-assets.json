@@ -1,0 +1,58 @@
+{
+  "native/src/flight_plugin.cpp": [
+    [
+      "#include <pxr/usd/usdPhysics/collisionAPI.h>\n#include <pxr/usd/usdGeom/metrics.h>\n#include <pxr/usd/usd/primRange.h>\n#include <pxr/usd/usd/editContext.h>\n#include <pxr/usd/usdGeom/xformable.h>\n#include <pxr/usd/usdUtils/stageCache.h>\n",
+      "#include <pxr/usd/usdPhysics/collisionAPI.h>\n#include <pxr/usd/usdGeom/metrics.h>\n#include <pxr/usd/usd/primRange.h>\n#include <pxr/usd/usd/references.h>\n#include <pxr/usd/usd/editContext.h>\n#include <pxr/usd/usdGeom/xformable.h>\n#include <pxr/usd/usdUtils/stageCache.h>\n"
+    ],
+    [
+      "            throw std::runtime_error(\"World must use metres and Z up.\");\n        if (!stage_->GetCompositionErrors().empty()) throw std::runtime_error(\"World contains unresolved asset references.\");\n        path_ = SdfPath(setting(\"/px4/flight/modelPath\",\"/World/Aircraft\"));\n        auto body = stage_->GetPrimAtPath(path_);\n        if (!body || !body.HasAPI<UsdPhysicsRigidBodyAPI>()) throw std::runtime_error(\"Model path must identify a USD rigid body.\");\n        bool collider = false;\n",
+      "            throw std::runtime_error(\"World must use metres and Z up.\");\n        if (!stage_->GetCompositionErrors().empty()) throw std::runtime_error(\"World contains unresolved asset references.\");\n        path_ = SdfPath(setting(\"/px4/flight/modelPath\",\"/World/Aircraft\"));\n        const auto modelFile = setting(\"/px4/flight/model\");\n        if (!modelFile.empty()) {\n            auto modelStage = UsdStage::Open(modelFile);\n            if (!modelStage || !modelStage->GetDefaultPrim() || !modelStage->GetCompositionErrors().empty())\n                throw std::runtime_error(\"Custom aircraft USD needs a default prim and resolvable assets.\");\n            if (UsdGeomGetStageUpAxis(modelStage) != UsdGeomTokens->z ||\n                std::abs(UsdGeomGetStageMetersPerUnit(modelStage)-1.0)>1e-9)\n                throw std::runtime_error(\"PhysX aircraft USD must use metres and Z up, X forward.\");\n            auto aircraft = stage_->OverridePrim(path_);\n            if (!aircraft.GetReferences().SetReferences({SdfReference(modelFile)}))\n                throw std::runtime_error(\"Cannot reference aircraft USD: \" + modelFile);\n            std::printf(\"Native aircraft asset: %s\\n\", modelFile.c_str());\n        }\n        auto body = stage_->GetPrimAtPath(path_);\n        if (!body || !body.HasAPI<UsdPhysicsRigidBodyAPI>()) throw std::runtime_error(\"Model path must identify a USD rigid body.\");\n        bool collider = false;\n"
+    ]
+  ],
+  "run_isaac.sh": [
+    [
+      "        --physics-check) KIT_OPTIONS+=(--/px4/flight/physicsCheck=true); shift ;;\n        --no-camera) KIT_OPTIONS+=(--/px4/camera/enabled=false); shift ;;\n        --no-terrain) KIT_OPTIONS+=(--/px4/terrain/enabled=false); shift ;;\n        --world|--config|--duration|--report|--camera-port|--camera-host)\n            if (( $# < 2 )); then printf 'Missing value for %s\\n' \"$1\" >&2; exit 1; fi\n            case \"$1\" in\n                --world) WORLD_FILE=\"$(realpath -e -- \"$2\")\" ;;\n                --config) AIRCRAFT_FILE=\"$(realpath -e -- \"$2\")\" ;;\n                --duration) KIT_OPTIONS+=(\"--/px4/flight/duration=$2\") ;;\n                --report) KIT_OPTIONS+=(\"--/px4/flight/report=$2\") ;;\n",
+      "        --physics-check) KIT_OPTIONS+=(--/px4/flight/physicsCheck=true); shift ;;\n        --no-camera) KIT_OPTIONS+=(--/px4/camera/enabled=false); shift ;;\n        --no-terrain) KIT_OPTIONS+=(--/px4/terrain/enabled=false); shift ;;\n        --world|--model|--config|--duration|--report|--camera-port|--camera-host)\n            if (( $# < 2 )); then printf 'Missing value for %s\\n' \"$1\" >&2; exit 1; fi\n            case \"$1\" in\n                --world) WORLD_FILE=\"$(realpath -e -- \"$2\")\" ;;\n                --model) KIT_OPTIONS+=(\"--/px4/flight/model=$(realpath -e -- \"$2\")\") ;;\n                --config) AIRCRAFT_FILE=\"$(realpath -e -- \"$2\")\" ;;\n                --duration) KIT_OPTIONS+=(\"--/px4/flight/duration=$2\") ;;\n                --report) KIT_OPTIONS+=(\"--/px4/flight/report=$2\") ;;\n"
+    ],
+    [
+      "            shift 2\n            ;;\n        -h|--help)\n            printf '%s\\n' 'Usage: ./run_isaac.sh [--headless] [--world FILE] [--config FILE]' \\\n                '  --no-camera --no-terrain --camera-port PORT --camera-host HOST' \\\n                '  --physics-check --duration SECONDS --report FILE' \\\n                '  PX4_INSTANCE selects the SITL instance; SIM_LAT/SIM_LON/SIM_ALT set the geographic origin.' \\\n",
+      "            shift 2\n            ;;\n        -h|--help)\n            printf '%s\\n' 'Usage: ./run_isaac.sh [--headless] [--world FILE] [--model FILE] [--config FILE]' \\\n                '  --no-camera --no-terrain --camera-port PORT --camera-host HOST' \\\n                '  --physics-check --duration SECONDS --report FILE' \\\n                '  PX4_INSTANCE selects the SITL instance; SIM_LAT/SIM_LON/SIM_ALT set the geographic origin.' \\\n"
+    ]
+  ],
+  "native/src/px4_launcher.cpp": [
+    [
+      "        if (!comment(line) && !(router && line == offboard)) mavlink_output.push_back(line);",
+      "        if (router && line == \"mavlink start -x -u $udp_gcs_port_local -r 4000000 -f\") mavlink_output.push_back(line + \" -o ${XOVIUM_ROUTER_PX4_PORT:-14550}\");\n        else if (!comment(line) && !(router && line == offboard)) mavlink_output.push_back(line);"
+    ],
+    [
+      "    const std::string dds_start = \"uxrce_dds_client start -t udp -h 127.0.0.1 -p $uxrce_dds_port $uxrce_dds_ns\";",
+      "    std::string dds_start = \"uxrce_dds_client start -t udp -h 127.0.0.1 -p $uxrce_dds_port $uxrce_dds_ns\";\n    if (std::count(startup.begin(), startup.end(), dds_start) == 0) dds_start = \"uxrce_dds_client start -t udp -p $uxrce_dds_port $uxrce_dds_ns\";"
+    ]
+  ],
+  "run_px4.sh": [
+    [
+      "    printf '%s\\n' 'PX4 -> MAVLink router: UDP 14550; QGC/app: use router endpoints.'",
+      "    printf 'PX4 -> MAVLink router: UDP %s; QGC/app: use router endpoints.\\n' \"${XOVIUM_ROUTER_PX4_PORT:-14550}\""
+    ],
+    [
+      "PX4 v1.16 SITL build is missing. Run ./install.sh --px4-only first.",
+      "PX4 SITL build is missing. Repair PX4 in the installer kit first."
+    ]
+  ],
+  "build_native.sh": [
+    [
+      "PX4_COMMIT='6ea3539157ca358c70a515878b77077af7d4611d'",
+      "PX4_COMMIT='@XOVIUM_PX4_COMMIT@'"
+    ],
+    [
+      "Native simulator requires the PX4 v1.16.0 checkout.",
+      "Native simulator requires the selected PX4 @XOVIUM_PX4_VERSION@ checkout."
+    ]
+  ],
+  "CMakeLists.txt": [
+    [
+      "target_include_directories(flight_core PUBLIC native/include PRIVATE \"${PX4_ROOT}/src/lib/events/libevents/libs/cpp/parse\" \"${PX4_ROOT}/build/px4_sitl_default/mavlink\")",
+      "set(PX4_EVENT_PARSE \"${PX4_ROOT}/src/lib/events/libevents/libs/cpp/parse\")\nfind_path(PX4_JSON_INCLUDE_DIR nlohmann/json.hpp\n    PATHS \"${PX4_EVENT_PARSE}\" \"${PX4_EVENT_PARSE}/nlohmann_json/include\"\n    NO_DEFAULT_PATH REQUIRED)\ntarget_include_directories(flight_core PUBLIC native/include PRIVATE \"${PX4_JSON_INCLUDE_DIR}\" \"${PX4_ROOT}/build/px4_sitl_default/mavlink\")"
+    ]
+  ]
+}

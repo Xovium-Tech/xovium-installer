@@ -1,0 +1,10 @@
+* text=auto
+*.sh text eol=lf
+*.sh.in text eol=lf
+*.py text eol=lf
+*.png binary
+/backend/assets/patches/*.patch -whitespace
+
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/backend/.gitignore export-ignore

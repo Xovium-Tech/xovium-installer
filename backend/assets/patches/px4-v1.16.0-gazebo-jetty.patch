@@ -1,0 +1,145 @@
+--- a/src/modules/simulation/gz_bridge/CMakeLists.txt
++++ b/src/modules/simulation/gz_bridge/CMakeLists.txt
+@@ -32,7 +32,7 @@
+ ############################################################################
+ 
+ if(NOT DEFINED ENV{GZ_DISTRO} OR NOT "$ENV{GZ_DISTRO}" STREQUAL "harmonic")
+-    find_package(gz-transport NAMES gz-transport14 gz-transport13)
++    find_package(gz-transport NAMES gz-transport gz-transport14 gz-transport13)
+ else()
+     find_package(gz-transport NAMES gz-transport13)
+ endif()
+@@ -41,6 +41,11 @@
+ file(GLOB gz_airframes ${PX4_SOURCE_DIR}/ROMFS/px4fmu_common/init.d-posix/airframes/*_gz_*)
+ 
+ if (gz-transport_FOUND)
++	if (gz-transport_VERSION VERSION_LESS "15")
++		set(GZ_TRANSPORT_TARGET "gz-transport${gz-transport_VERSION_MAJOR}::core")
++	else()
++		set(GZ_TRANSPORT_TARGET "gz-transport::core")
++	endif()
+ 	px4_add_module(
+ 		MODULE modules__simulation__gz_bridge
+ 		MAIN gz_bridge
+@@ -60,7 +65,7 @@
+ 		DEPENDS
+ 			mixer_module
+ 			px4_work_queue
+-			gz-transport${gz-transport_VERSION_MAJOR}::core
++			${GZ_TRANSPORT_TARGET}
+ 		MODULE_CONFIG
+ 			module.yaml
+ 	)
+--- a/src/modules/simulation/gz_plugins/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/CMakeLists.txt
+@@ -34,10 +34,10 @@
+ project(px4_gz_plugins)
+ 
+ if(NOT DEFINED ENV{GZ_DISTRO} OR NOT "$ENV{GZ_DISTRO}"  STREQUAL "harmonic")
+-    find_package(gz-transport NAMES gz-transport14 gz-transport13)
+-    find_package(gz-sim NAMES gz-sim9 gz-sim8)
+-    find_package(gz-sensors NAMES gz-sensors9 gz-sensors8)
+-    find_package(gz-plugin NAMES gz-plugin3 gz-plugin2 COMPONENTS register)
++    find_package(gz-transport NAMES gz-transport gz-transport14 gz-transport13)
++    find_package(gz-sim NAMES gz-sim gz-sim9 gz-sim8)
++    find_package(gz-sensors NAMES gz-sensors gz-sensors9 gz-sensors8)
++    find_package(gz-plugin NAMES gz-plugin gz-plugin3 gz-plugin2 COMPONENTS register)
+ else()
+     find_package(gz-transport NAMES gz-transport13)
+     find_package(gz-sim NAMES gz-sim8)
+@@ -46,6 +46,17 @@
+ endif()
+ 
+ if (gz-transport_FOUND)
++    if (gz-transport_VERSION VERSION_LESS "15")
++        set(GZ_TRANSPORT_TARGET "gz-transport${gz-transport_VERSION_MAJOR}::gz-transport${gz-transport_VERSION_MAJOR}")
++        set(GZ_SIM_TARGET "gz-sim${gz-sim_VERSION_MAJOR}::gz-sim${gz-sim_VERSION_MAJOR}")
++        set(GZ_SENSORS_TARGET "gz-sensors${gz-sensors_VERSION_MAJOR}::gz-sensors${gz-sensors_VERSION_MAJOR}")
++        set(GZ_PLUGIN_TARGET "gz-plugin${gz-plugin_VERSION_MAJOR}::gz-plugin${gz-plugin_VERSION_MAJOR}")
++    else()
++        set(GZ_TRANSPORT_TARGET "gz-transport::gz-transport")
++        set(GZ_SIM_TARGET "gz-sim::gz-sim")
++        set(GZ_SENSORS_TARGET "gz-sensors::gz-sensors")
++        set(GZ_PLUGIN_TARGET "gz-plugin::gz-plugin")
++    endif()
+     # Create a flat output directory for all plugin libraries
+     set(PX4_GZ_PLUGIN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE PATH "Directory for all Gazebo plugin libraries")
+     file(MAKE_DIRECTORY ${PX4_GZ_PLUGIN_OUTPUT_DIR})
+--- a/src/modules/simulation/gz_plugins/optical_flow/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/optical_flow/CMakeLists.txt
+@@ -46,10 +46,10 @@
+ 
+ target_link_libraries(${PROJECT_NAME}
+     PUBLIC px4_gz_msgs
+-    PUBLIC gz-sensors${gz-sensors_VERSION_MAJOR}::gz-sensors${gz-sensors_VERSION_MAJOR}
+-    PUBLIC gz-plugin${gz-plugin_VERSION_MAJOR}::gz-plugin${gz-plugin_VERSION_MAJOR}
+-    PUBLIC gz-sim${gz-sim_VERSION_MAJOR}::gz-sim${gz-sim_VERSION_MAJOR}
+-    PUBLIC gz-transport${gz-transport_VERSION_MAJOR}::gz-transport${gz-transport_VERSION_MAJOR}
++    PUBLIC ${GZ_SENSORS_TARGET}
++    PUBLIC ${GZ_PLUGIN_TARGET}
++    PUBLIC ${GZ_SIM_TARGET}
++    PUBLIC ${GZ_TRANSPORT_TARGET}
+     PUBLIC ${OpenCV_LIBS}
+     PUBLIC ${OpticalFlow_LIBS}
+ )
+--- a/src/modules/simulation/gz_plugins/gstreamer/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/gstreamer/CMakeLists.txt
+@@ -47,10 +47,10 @@
+ 
+     target_link_libraries(${PROJECT_NAME}
+         PUBLIC px4_gz_msgs
+-        PUBLIC gz-sensors${gz-sensors_VERSION_MAJOR}::gz-sensors${gz-sensors_VERSION_MAJOR}
+-        PUBLIC gz-plugin${gz-plugin_VERSION_MAJOR}::gz-plugin${gz-plugin_VERSION_MAJOR}
+-        PUBLIC gz-sim${gz-sim_VERSION_MAJOR}::gz-sim${gz-sim_VERSION_MAJOR}
+-        PUBLIC gz-transport${gz-transport_VERSION_MAJOR}::gz-transport${gz-transport_VERSION_MAJOR}
++        PUBLIC ${GZ_SENSORS_TARGET}
++        PUBLIC ${GZ_PLUGIN_TARGET}
++        PUBLIC ${GZ_SIM_TARGET}
++        PUBLIC ${GZ_TRANSPORT_TARGET}
+         PUBLIC ${GSTREAMER_LIBRARIES}
+         PUBLIC ${GSTREAMER_APP_LIBRARIES}
+     )
+--- a/src/modules/simulation/gz_plugins/template_plugin/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/template_plugin/CMakeLists.txt
+@@ -48,10 +48,10 @@
+ 
+ target_link_libraries(${PROJECT_NAME}
+     PUBLIC px4_gz_msgs
+-    PUBLIC gz-sensors${gz-sensors_VERSION_MAJOR}::gz-sensors${gz-sensors_VERSION_MAJOR}
+-    PUBLIC gz-plugin${gz-plugin_VERSION_MAJOR}::gz-plugin${gz-plugin_VERSION_MAJOR}
+-    PUBLIC gz-sim${gz-sim_VERSION_MAJOR}::gz-sim${gz-sim_VERSION_MAJOR}
+-    PUBLIC gz-transport${gz-transport_VERSION_MAJOR}::gz-transport${gz-transport_VERSION_MAJOR}
++    PUBLIC ${GZ_SENSORS_TARGET}
++    PUBLIC ${GZ_PLUGIN_TARGET}
++    PUBLIC ${GZ_SIM_TARGET}
++    PUBLIC ${GZ_TRANSPORT_TARGET}
+     # Add other dependencies as needed
+     # PUBLIC ${OtherLib_LIBS}
+ )
+--- a/src/modules/simulation/gz_plugins/moving_platform_controller/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/moving_platform_controller/CMakeLists.txt
+@@ -39,10 +39,10 @@
+ 
+ target_link_libraries(${PROJECT_NAME}
+     PUBLIC px4_gz_msgs
+-    PUBLIC gz-sensors${gz-sensors_VERSION_MAJOR}::gz-sensors${gz-sensors_VERSION_MAJOR}
+-    PUBLIC gz-plugin${gz-plugin_VERSION_MAJOR}::gz-plugin${gz-plugin_VERSION_MAJOR}
+-    PUBLIC gz-sim${gz-sim_VERSION_MAJOR}::gz-sim${gz-sim_VERSION_MAJOR}
+-    PUBLIC gz-transport${gz-transport_VERSION_MAJOR}::gz-transport${gz-transport_VERSION_MAJOR}
++    PUBLIC ${GZ_SENSORS_TARGET}
++    PUBLIC ${GZ_PLUGIN_TARGET}
++    PUBLIC ${GZ_SIM_TARGET}
++    PUBLIC ${GZ_TRANSPORT_TARGET}
+ )
+ 
+ target_include_directories(${PROJECT_NAME}
+--- a/src/modules/simulation/gz_bridge/GZMixingInterfaceServo.cpp
++++ b/src/modules/simulation/gz_bridge/GZMixingInterfaceServo.cpp
+@@ -32,6 +32,7 @@
+  ****************************************************************************/
+ 
+ #include "GZMixingInterfaceServo.hpp"
++#include <gz/msgs/double.pb.h>
+ 
+ 
+ float

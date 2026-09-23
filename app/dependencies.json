@@ -1,0 +1,5 @@
+{
+  "raylib": {"repository": "https://github.com/raysan5/raylib.git", "tag": "5.5", "commit": "c1ab645ca298a2801097931d1079b10ff7eb9df8"},
+  "imgui": {"repository": "https://github.com/ocornut/imgui.git", "tag": "v1.92.5-docking", "commit": "3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c"},
+  "rlImGui": {"repository": "https://github.com/raylib-extras/rlImGui.git", "tag": "Raylib_5_5", "commit": "118221c8a532501a3c2c236b62950877cbefc2b4"}
+}

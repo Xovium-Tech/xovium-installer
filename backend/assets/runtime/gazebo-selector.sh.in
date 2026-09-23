@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  sim|gui) major=@SIM_MAJOR@ ;;
+  topic|service) major=@TRANSPORT_MAJOR@ ;;
+  msg) major=@MSGS_MAJOR@ ;;
+  *) exec /usr/bin/gz "$@" ;;
+esac
+command_name=$1
+shift
+for arg in "$@"; do
+    if [[ "$arg" == --versions ]]; then
+        /usr/bin/gz "$command_name" --versions | awk -v major="$major" '$0 ~ "^[[:space:]]*" major "[.]" {print; found=1} END {exit !found}'
+        exit
+    fi
+done
+args=()
+if [[ "$command_name" == sim ]]; then
+    engine_path() {
+        case "$1" in
+            ogre|ogre2) printf '%s' '@ENGINE_DIRECTORY@/lib@RENDERING_PREFIX@-'"$1"'.so' ;;
+            *) printf '%s' "$1" ;;
+        esac
+    }
+    common_engine=0; server_engine=0; gui_engine=0
+    while (($#)); do
+        arg=$1; shift
+        case "$arg" in
+            --render-engine|--render-engine-server|--render-engine-gui|--render-engine=*|--render-engine-server=*|--render-engine-gui=*)
+                option=${arg%%=*}
+                case "$option" in
+                    --render-engine) common_engine=1 ;;
+                    --render-engine-server) server_engine=1 ;;
+                    --render-engine-gui) gui_engine=1 ;;
+                esac
+                if [[ "$arg" == *=* ]]; then
+                    args+=("$option=$(engine_path "${arg#*=}")")
+                elif (($#)); then
+                    args+=("$option" "$(engine_path "$1")"); shift
+                else
+                    printf 'Error: %s needs a rendering engine.\n' "$option" >&2; exit 2
+                fi
+                ;;
+            *) args+=("$arg") ;;
+        esac
+    done
+    if (( ! common_engine )); then
+        (( server_engine )) || args+=(--render-engine-server "$(engine_path ogre2)")
+        (( gui_engine )) || args+=(--render-engine-gui "$(engine_path ogre2)")
+    fi
+else
+    args=("$@")
+fi
+if [[ $command_name == sim && -n ${XOVIUM_SESSION_LOG_DIR:-} ]]; then
+    for arg in "${args[@]}"; do
+        case "$arg" in
+            -s|--server-only) exec >>"$XOVIUM_SESSION_LOG_DIR/gazebo-server.log" 2>&1; break ;;
+            -g|--gui-only) exec >>"$XOVIUM_SESSION_LOG_DIR/gazebo-gui.log" 2>&1; break ;;
+        esac
+    done
+fi
+exec /usr/bin/gz "$command_name" --force-version "$major" "${args[@]}"

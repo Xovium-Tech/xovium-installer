@@ -1,0 +1,8 @@
+{
+  "FG_run.py": [
+    [
+      "    url=data['Url']\n    controls=data['Controls']\n\nprint(model)\nprint(url)\nfor c in controls:\n",
+      "    url=data['Url']\n    controls=data['Controls']\n\ncustom_aircraft = os.environ.get('XOVIUM_FG_AIRCRAFT')\nif custom_aircraft:\n    aircraft_file = Path(custom_aircraft).resolve(strict=True)\n    if not aircraft_file.name.endswith('-set.xml'):\n        raise SystemExit('Custom FlightGear aircraft must be a -set.xml file')\n    model = aircraft_file.name.removesuffix('-set.xml')\n    fgmodelsdir = str(aircraft_file.parent.parent) + os.pathsep + fgmodelsdir\n\nprint(model)\nprint(url)\nfor c in controls:\n"
+    ]
+  ]
+}

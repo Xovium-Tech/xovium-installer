@@ -1,0 +1,20 @@
+{
+  "run_px4.sh": [
+    [
+      "Path(mavlink_path).write_text(\"\\n\".join(mavlink_lines) + \"\\n\")",
+      "if router:\n    gcs = \"mavlink start -x -u $udp_gcs_port_local -r 4000000 -f\"\n    if mavlink_lines.count(gcs) != 1: sys.exit(\"Unsupported PX4 GCS startup layout.\")\n    mavlink_lines = [line + \" -o ${XOVIUM_ROUTER_PX4_PORT:-14550}\" if line == gcs else line for line in mavlink_lines]\nPath(mavlink_path).write_text(\"\\n\".join(mavlink_lines) + \"\\n\")"
+    ],
+    [
+      "    printf 'PX4 -> MAVLink router: UDP 14550; QGC/app: use router endpoints; Isaac Sim: UDP %s\\n' \"$((19410 + PX4_INSTANCE))\"",
+      "    printf 'PX4 -> MAVLink router: UDP %s; QGC/app: use router endpoints; Isaac Sim: UDP %s\\n' \"${XOVIUM_ROUTER_PX4_PORT:-14550}\" \"$((19410 + PX4_INSTANCE))\""
+    ],
+    [
+      "dds_start = \"uxrce_dds_client start -t udp -h 127.0.0.1 -p $uxrce_dds_port $uxrce_dds_ns\"",
+      "dds_start = \"uxrce_dds_client start -t udp -h 127.0.0.1 -p $uxrce_dds_port $uxrce_dds_ns\"\nif dds_start not in startup.splitlines(): dds_start = \"uxrce_dds_client start -t udp -p $uxrce_dds_port $uxrce_dds_ns\""
+    ],
+    [
+      "PX4 v1.16 SITL build is missing. Run ./install.sh --px4-only first.",
+      "PX4 SITL build is missing. Repair PX4 in the installer kit first."
+    ]
+  ]
+}
