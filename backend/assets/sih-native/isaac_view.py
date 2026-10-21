@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import signal
 import sys
 import threading
@@ -40,7 +41,7 @@ def prepare_scene(stage, aircraft_usd=None):
         translation = aircraft.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble)
         orientation = aircraft.AddOrientOp(UsdGeom.XformOp.PrecisionDouble)
         if aircraft_usd is None and not stage.GetPrimAtPath("/World/Aircraft/Visual/Asset"):
-            aircraft_usd = PROJECT_DIR / "models" / "airplane.usda"
+            aircraft_usd = PROJECT_DIR / "models" / "rc_cessna.usda"
         if aircraft_usd is not None:
             asset_path = Path(aircraft_usd).expanduser().resolve()
             asset_stage = Usd.Stage.Open(str(asset_path))
@@ -92,6 +93,7 @@ def run_view(receiver, args):
         "multi_gpu": False,
         "extra_args": ["--/log/channels/omni.rtx=info"],
     })
+    terrain = None
     try:
         import omni.usd
         from omni.kit.viewport.utility import get_active_viewport
@@ -106,6 +108,9 @@ def run_view(receiver, args):
             app.set_setting("/rtx/sceneDb/ambientLightIntensity", 0.3)
         stage = context.get_stage()
         translation, orientation, chase_transform = prepare_scene(stage, args.aircraft_usd)
+        if os.environ.get("XOVIUM_TERRAIN_CONFIG"):
+            from streamed_terrain import StreamedTerrain
+            terrain = StreamedTerrain(stage, args.system_id - 1, args.origin)
         print(f"World: {world_path}", flush=True)
         viewport = get_active_viewport()
         if viewport:
@@ -120,7 +125,8 @@ def run_view(receiver, args):
         signal.signal(signal.SIGINT, lambda *_: exit_requested.set())
         signal.signal(signal.SIGTERM, lambda *_: exit_requested.set())
         frame_period = 1.0 / args.fps
-        print("Flight physics: PX4 SIH. Isaac Sim follows ground truth; scene collisions do not affect PX4.")
+        physics = "Xovium native rover ground physics" if os.environ.get("XOVIUM_VEHICLE") == "r1_rover" else "PX4 SIH"
+        print(f"Physics: {physics}. Isaac Sim follows ground truth; viewer scene collisions do not affect PX4.")
         print(f"Waiting for PX4 system {args.system_id} on {args.endpoint}")
         while app.is_running() and not exit_requested.is_set():
             started = time.monotonic()
@@ -148,6 +154,8 @@ def run_view(receiver, args):
             if connected and stale != previous_stale:
                 print("PX4 stream stopped; holding last pose" if stale else "PX4 stream resumed")
             previous_stale = stale
+            if terrain:
+                terrain.update(pose.position if pose else None)
             app.update()
             if viewport and not rendering:
                 frame = viewport.frame_info.get("frame_number")
@@ -156,6 +164,8 @@ def run_view(receiver, args):
                     rendering = True
             time.sleep(max(0, frame_period - (time.monotonic() - started)))
     finally:
+        if terrain:
+            terrain.close()
         app.close()
 
 
@@ -171,7 +181,7 @@ def main():
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--camera", choices=("chase", "onboard"), default="chase")
-    parser.add_argument("--world-usd", default=str(PROJECT_DIR / "worlds" / "runway.usda"))
+    parser.add_argument("--world-usd", default=str(PROJECT_DIR / "worlds" / "baylands.usda"))
     parser.add_argument("--aircraft-usd")
     parser.add_argument("--fps", type=float, default=30.0)
     args = parser.parse_args()

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "origin": {"latitude": 35.7162542, "longitude": -120.7615102, "altitude": 280.0},
+  "cache": "../../cache/terrain",
+  "zoom": 15,
+  "radius": 2,
+  "imagery_url": "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+  "imagery_extension": "jpg",
+  "elevation_url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+}

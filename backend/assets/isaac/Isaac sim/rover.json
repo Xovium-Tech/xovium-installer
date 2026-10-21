@@ -1,0 +1,29 @@
+{
+  "name": "Aion R1 differential rover",
+  "vehicle": "r1_rover",
+  "mass_kg": 20.0,
+  "inertia_kg_m2": [0.37083, 0.37083, 0.53333],
+  "actuator_channels": {"right": 0, "left": 1},
+  "rover": {
+    "wheel_radius_m": 0.0686,
+    "wheel_width_m": 0.0762,
+    "wheel_track_m": 0.32634,
+    "wheel_base_m": 0.3,
+    "wheel_center_z_m": 0.0215,
+    "wheel_mass_kg": 0.414,
+    "maximum_speed_m_s": 2.1,
+    "maximum_yaw_rate_rad_s": 2.5,
+    "maximum_torque_nm": 4.0,
+    "motor_time_constant_s": 0.12,
+    "motor_rate_per_s": 4.0,
+    "tire_friction": 0.8
+  },
+  "spawn": {"position_enu_m": [0.0, 0.0, 0.12], "heading_deg": 0.0},
+  "sensors": {
+    "accel_noise_std_m_s2": 0.02,
+    "gyro_noise_std_rad_s": 0.001,
+    "mag_noise_std_gauss": 0.0005,
+    "baro_noise_std_hpa": 0.01,
+    "magnetic_field_ned_gauss": [0.215, 0.011, 0.427]
+  }
+}

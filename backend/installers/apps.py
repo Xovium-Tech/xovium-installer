@@ -63,17 +63,13 @@ def isaac_runtime(ctx):
 
 def sih(ctx):
     simulator(ctx, "sih")
-    for folder in ("models", "worlds"):
-        ctx.copy_asset("isaac/SIH/" + folder, f"simulation/sih/{folder}")
-    native = ctx.copy_asset("sih-native", "simulation/sih/bridge")
+    native = rover_bridge(ctx)
     for file in ("run_px4.sh", "px4_startup.sh"):
         ctx.copy_asset("isaac/SIH/" + file, "simulation/sih/bridge/" + file)
     adapt_assets(ctx, 'sih-router', native)
     env = isaac_environment(ctx)
-    headers = ctx.prefix / "px4/source/build/px4_sitl_default/mavlink"
-    ctx.run("cmake", "-S", native, "-B", native / "build", f"-DMAVLINK_INCLUDE_DIR={headers}",
-            "-DCMAKE_BUILD_TYPE=Release")
-    ctx.run("cmake", "--build", native / "build", "--parallel", ctx.options.jobs)
+    _, extra = launch_options(ctx, 'sih')
+    env.update(extra)
     px4 = ctx.launcher("sih-px4", ["bash", native / "run_px4.sh"], env)
     view = sih_view_launcher(ctx)
     return [px4, view, native / "build/libxovium_sih.so", native / "native_receiver.py",
@@ -93,7 +89,8 @@ def isaac(ctx):
     ctx.adapt_text(project / "run_isaac.sh", [("$SHARED_ROOT/.venv-isaac", "$SHARED_ROOT/runtime")])
     env = isaac_environment(ctx)
     ctx.run("bash", project / "build_native.sh", env=env)
-    px4 = ctx.launcher("isaac-px4", ["bash", project / "run_px4.sh"], env)
+    _, extra = launch_options(ctx, 'isaac')
+    px4 = ctx.launcher("isaac-px4", ["bash", project / "run_px4.sh"], {**env, **extra})
     view = isaac_launcher(ctx)
     return [px4, view, project / "bin/isaac_native", project / "bin/px4_launcher",
             ctx.prefix / "simulation/isaac/plugins/px4.isaac.flight/bin/libpx4.isaac.flight.plugin.so",
@@ -156,13 +153,39 @@ def router(ctx):
 
 def sih_core(ctx):
     simulator(ctx, 'sih')
+    native = rover_bridge(ctx)
     for file in ('run_px4.sh', 'px4_startup.sh'):
         ctx.copy_asset('isaac/SIH/' + file, 'simulation/sih/bridge/' + file)
     adapt_assets(ctx, 'sih-router', ctx.prefix / 'simulation/sih/bridge')
     env = environment(ctx)
     env.pop('DONT_RUN', None)
+    _, extra = launch_options(ctx, 'sih')
+    env.update(extra)
     return [ctx.launcher('sih-px4', ['bash', ctx.prefix / 'simulation/sih/bridge/run_px4.sh'], env),
-            ctx.managed('simulation/sih/bridge/run_px4.sh'), ctx.managed('simulation/sih/bridge/px4_startup.sh')]
+            ctx.managed('simulation/sih/bridge/run_px4.sh'), ctx.managed('simulation/sih/bridge/px4_startup.sh'),
+            native / 'build/xovium_rover']
+
+
+def rover_bridge(ctx):
+    """The lightweight ground FDM is also FlightGear's external rover FDM."""
+    simulator(ctx, 'sih')
+    native = ctx.copy_asset('sih-native', 'simulation/sih/bridge')
+    for name in ('include/flight_core.hpp', 'include/rover_drive.hpp', 'include/terrain.hpp',
+                 'src/flight_core.cpp', 'src/terrain.cpp'):
+        ctx.copy_asset('isaac/Isaac sim/native/' + name, 'simulation/sih/bridge/native/' + name)
+    ctx.copy_asset('isaac/Isaac sim/rover.json', 'simulation/sih/bridge/rover.json')
+    source = ctx.prefix / 'px4/source'
+    parse = source / 'src/lib/events/libevents/libs/cpp/parse'
+    json_headers = next((path for path in (parse, parse / 'nlohmann_json/include')
+                         if (path / 'nlohmann/json.hpp').is_file()), None)
+    if json_headers is None:
+        raise Error('PX4 JSON headers are missing; repair its submodules before building the rover bridge.')
+    ctx.run('cmake', '-S', native, '-B', native / 'build', '-DCMAKE_BUILD_TYPE=Release',
+            f'-DMAVLINK_INCLUDE_DIR={source}/build/px4_sitl_default/mavlink',
+            f'-DFLIGHT_CORE_DIR={native}/native',
+            f'-DJSON_INCLUDE_DIR={json_headers}')
+    ctx.run('cmake', '--build', native / 'build', '--parallel', ctx.options.jobs)
+    return native
 
 
 def isaac_launcher(ctx):

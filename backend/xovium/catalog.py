@@ -10,16 +10,16 @@ QGC_RELEASES = {
 ISAAC_VERSION = "6.1.0.0"
 PUBLIC = ("px4", "qgc", "flightgear", "unreal-engine", "isaac", "sih", "sih-core",
           "gazebo-jetty", "gazebo-harmonic", "gazebo-plugins", "mavlink-router")
-BUILD = "build-essential ccache cmake file git libssl-dev libxml2-dev libxml2-utils ninja-build pkg-config python3-dev python3-venv rsync unzip zip".split()
+BUILD = "build-essential ccache cmake file git libssl-dev libxml2-dev libxml2-utils ninja-build pkg-config python3-dev python3-venv rsync unzip zip libassimp-dev python3-numpy".split()
 GST = "libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav".split()
 GAZEBO_BUILD = ["libopencv-dev", "libeigen3-dev"] + GST
 PACKAGES = {
     "px4": BUILD + ["bc"],
     "qgc": "libfuse2t64 libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-render-util0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-shape0 libxcb-xkb1 libopengl0 libpulse0".split() + GST,
-    "flightgear": ["flightgear", "xdotool", "libeigen3-dev"] + BUILD,
+    "flightgear": ["flightgear", "xdotool", "libeigen3-dev", "libcurl4-openssl-dev", "libpng-dev"] + BUILD,
     "isaac-runtime": "python3.12 python3.12-venv libegl1 libgl1 libvulkan1 libxt6t64 libxrandr2 libxi6 libxrender1 libxkbcommon0 libnss3 libasound2t64".split(),
     "isaac": BUILD + GST + "7zip curl libcurl4-openssl-dev libpng-dev python3.12-dev".split(),
-    "sih": [], "sih-core": [],
+    "sih": [], "sih-core": ["libcurl4-openssl-dev", "libpng-dev"],
     "unreal-engine": BUILD + "bc curl git-lfs xz-utils libvulkan1 vulkan-tools mesa-vulkan-drivers libgl1 libegl1 libsdl2-2.0-0 libnss3 libnspr4 libgbm1 libasound2t64 libpulse0 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libxss1 libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxkbcommon-x11-0 libgtk-3-0t64 libfreetype6 libfontconfig1 libatk1.0-0t64 libatk-bridge2.0-0t64 libdrm2 libglu1-mesa".split(),
     "gazebo-harmonic": ["gz-harmonic", "libgz-transport13-dev", "libgz-sim8-dev"] + GAZEBO_BUILD,
     "gazebo-jetty": ["gz-jetty", "libgz-transport15-dev", "libgz-sim10-dev"] + GAZEBO_BUILD,
@@ -53,6 +53,8 @@ def packages_for(plan, backend):
     packages = {"ca-certificates", "curl"}
     for name in plan:
         packages.update(PACKAGES[name])
+    if 'unreal-engine' in plan:
+        packages.update(['blender', 'libcurl4-openssl-dev', 'libopencv-dev', 'libjpeg-dev'])
     if "gazebo-plugins" in plan:
         for distro in ('harmonic', 'jetty'):
             if f'gazebo-{distro}' in plan or distro == backend:

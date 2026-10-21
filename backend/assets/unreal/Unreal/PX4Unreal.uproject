@@ -4,6 +4,20 @@
   "Category": "Simulation",
   "Description": "PX4 fixed-wing SITL with Unreal Chaos physics and MAVLink sensors",
   "Modules": [
-    { "Name": "PX4Unreal", "Type": "Runtime", "LoadingPhase": "Default" }
+    {
+      "Name": "PX4Unreal",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "PythonScriptPlugin",
+      "Enabled": true
+    },
+    {
+      "Name": "ProceduralMeshComponent",
+      "Enabled": true
+    }
   ]
 }

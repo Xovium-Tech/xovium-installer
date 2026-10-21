@@ -19,7 +19,7 @@ inline constexpr SimulatorRequirements simulatorRequirements[] = {
      "NVIDIA RTX 4080 / 16 GB VRAM or supported equivalent. AMD GPUs and NVIDIA GPUs without RT cores are unsupported.",
      "https://docs.isaacsim.omniverse.nvidia.com/6.1.0/installation/requirements.html"},
     {1, "Kit recommendation: 2+ Intel/AMD x86-64 CPU cores; 4 GB RAM to run, 8 GB for builds.",
-     "No dedicated GPU needed for PX4 SIH physics. QGC still needs a graphical desktop.",
+     "No dedicated GPU needed for PX4's built-in airplane or native rover physics. QGC still needs a graphical desktop.",
      "https://docs.px4.io/v1.16/en/sim_sih/"},
     {150, "Quad-core Intel/AMD 2.5 GHz or faster; 32 GB RAM recommended for the editor/builds.",
      "NVIDIA or AMD GPU with Vulkan and 8+ GB VRAM. More demanding rendering features need newer GPUs.",

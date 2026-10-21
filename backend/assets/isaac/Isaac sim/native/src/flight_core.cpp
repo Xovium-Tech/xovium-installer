@@ -79,8 +79,27 @@ Config load_config(const std::string& path) {
     const auto document = nlohmann::json::parse(stream);
     Config config;
     config.name = document.value("name", "Fixed-wing aircraft");
+    config.vehicle = document.value("vehicle", "rc_cessna");
     config.mass_kg = document.at("mass_kg").get<double>();
     config.inertia_kg_m2 = vector_from_json(document.at("inertia_kg_m2"), "inertia_kg_m2");
+    if (config.vehicle == "r1_rover") {
+        const auto& rover = document.at("rover");
+#define ROVER_VALUE(name) config.rover.name = rover.value(#name, config.rover.name)
+        ROVER_VALUE(wheel_radius_m); ROVER_VALUE(wheel_width_m); ROVER_VALUE(wheel_track_m);
+        ROVER_VALUE(wheel_base_m); ROVER_VALUE(wheel_center_z_m); ROVER_VALUE(wheel_mass_kg);
+        ROVER_VALUE(maximum_speed_m_s); ROVER_VALUE(maximum_yaw_rate_rad_s); ROVER_VALUE(maximum_torque_nm);
+        ROVER_VALUE(motor_time_constant_s); ROVER_VALUE(motor_rate_per_s); ROVER_VALUE(tire_friction);
+#undef ROVER_VALUE
+        const auto& channels = document.at("actuator_channels");
+        if (!channels.is_object() || channels.size() != 2) throw std::invalid_argument("Rover channels must define right and left");
+        for (std::size_t i = 0; i < 2; ++i) {
+            const auto& channel = channels.at(i == 0 ? "right" : "left");
+            if (!channel.is_number_integer()) throw std::invalid_argument("Rover actuator channels must be integers");
+            const auto number = channel.get<std::int64_t>();
+            if (number < 0 || number >= 16) throw std::invalid_argument("Actuator channels must be from 0 through 15");
+            config.actuator_channels[i] = static_cast<int>(number);
+        }
+    } else {
     config.wing_area_m2 = document.at("wing_area_m2").get<double>();
     config.wingspan_m = document.at("wingspan_m").get<double>();
     config.mean_chord_m = document.at("mean_chord_m").get<double>();
@@ -95,6 +114,7 @@ Config load_config(const std::string& path) {
         const auto number = channel.get<std::int64_t>();
         if (number < 0 || number >= 16) throw std::invalid_argument("Actuator channels must be from 0 through 15");
         config.actuator_channels[i] = static_cast<int>(number);
+    }
     }
     config.spawn_position_enu_m = vector_from_json(document.at("spawn").at("position_enu_m"), "spawn.position_enu_m");
     config.spawn_heading_deg = document.at("spawn").at("heading_deg").get<double>();
@@ -113,6 +133,7 @@ Config load_config(const std::string& path) {
 }
 
 void validate_config(const Config& c) {
+    if (c.vehicle != "rc_cessna" && c.vehicle != "r1_rover") throw std::invalid_argument("Unsupported vehicle configuration");
     require_positive(c.mass_kg, "mass_kg");
     require_positive(c.wing_area_m2, "wing_area_m2");
     require_positive(c.wingspan_m, "wingspan_m");
@@ -127,6 +148,13 @@ void validate_config(const Config& c) {
             if (!std::isfinite(value)) throw std::invalid_argument(name + " must be finite");
         }
     }
+    if (c.vehicle == "r1_rover") {
+        const auto& r = c.rover;
+        for (double value : {r.wheel_radius_m, r.wheel_width_m, r.wheel_track_m, r.wheel_base_m,
+             r.wheel_mass_kg, r.maximum_speed_m_s, r.maximum_yaw_rate_rad_s, r.maximum_torque_nm,
+             r.motor_time_constant_s, r.motor_rate_per_s, r.tire_friction}) require_positive(value, "Rover parameter");
+        if (!std::isfinite(r.wheel_center_z_m)) throw std::invalid_argument("Rover wheel height must be finite");
+    } else {
     const auto& a = c.coefficients;
     for (const char* name : {"cl_zero", "cl_alpha", "cl_max", "cl_post_stall", "stall_start_deg", "stall_end_deg",
          "cd_zero", "cd_induced", "cd_post_stall", "cd_reverse", "cy_beta", "cy_rudder", "roll_beta", "roll_p",
@@ -143,11 +171,12 @@ void validate_config(const Config& c) {
     for (const char* name : {"max_thrust_n", "zero_thrust_speed_m_s"}) require_positive(c.propulsion.at(name), name);
     for (const char* name : {"servo_time_constant_s", "servo_rate_per_s", "motor_time_constant_s", "motor_rate_per_s"})
         require_positive(c.actuators.at(name), name);
+    }
     finite_vector(c.spawn_position_enu_m, "Spawn position");
     finite_vector(c.wind_enu_m_s, "Wind");
     finite_vector(c.sensors.magnetic_field_ned_gauss, "Magnetic field");
     if (!std::isfinite(c.spawn_heading_deg)) throw std::invalid_argument("Spawn heading must be finite");
-    for (std::size_t i = 0; i < 4; ++i) {
+    for (std::size_t i = 0; i < (c.vehicle == "r1_rover" ? 2u : 4u); ++i) {
         if (c.actuator_channels[i] < 0 || c.actuator_channels[i] >= 16) throw std::invalid_argument("Actuator channels must be from 0 through 15");
         for (std::size_t j = 0; j < i; ++j) {
             if (c.actuator_channels[i] == c.actuator_channels[j]) throw std::invalid_argument("Actuator channels must be distinct");
@@ -347,6 +376,7 @@ struct MavlinkBridge::Impl {
     int client = -1;
     std::uint16_t port = 0;
     double control_timeout_s;
+    bool strict_lockstep;
     bool connected = false;
     bool armed = false;
     bool received_controls = false;
@@ -358,12 +388,14 @@ struct MavlinkBridge::Impl {
     std::uint64_t last_truth_us = 0;
     std::uint64_t last_heartbeat_us = 0;
     Clock::time_point sensor_sent_wall_time{};
+    Clock::time_point control_received_wall_time{};
     std::vector<std::uint8_t> send_buffer;
     mavlink_message_t receive_buffer{};
     mavlink_status_t receive_status{};
     mavlink_status_t send_status{};
 
-    Impl(SensorModel model, double timeout) : sensors(std::move(model)), control_timeout_s(timeout) {}
+    Impl(SensorModel model, double timeout, bool lockstep)
+        : sensors(std::move(model)), control_timeout_s(timeout), strict_lockstep(lockstep) {}
     ~Impl() {
         if (client >= 0) ::close(client);
         if (listener >= 0) ::close(listener);
@@ -400,6 +432,15 @@ struct MavlinkBridge::Impl {
     }
 
     void receive(const mavlink_message_t& message) {
+        if (!strict_lockstep && message.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+            mavlink_heartbeat_t heartbeat{};
+            mavlink_msg_heartbeat_decode(&message, &heartbeat);
+            if (heartbeat.autopilot == MAV_AUTOPILOT_PX4 && !(heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED)) {
+                armed = false;
+                controls.fill(0);
+            }
+            return;
+        }
         if (message.msgid != MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS) return;
         mavlink_hil_actuator_controls_t actuator{};
         mavlink_msg_hil_actuator_controls_decode(&message, &actuator);
@@ -411,14 +452,15 @@ struct MavlinkBridge::Impl {
             }
         }
         received_controls = true;
+        control_received_wall_time = Clock::now();
         control_timestamp_us = actuator.time_usec;
         armed = (actuator.mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
         for (std::size_t i = 0; i < 16; ++i) controls[i] = armed ? std::clamp(static_cast<double>(actuator.controls[i]), -1.0, 1.0) : 0;
     }
 };
 
-MavlinkBridge::MavlinkBridge(SensorModel sensors, std::uint16_t port, const std::string& host, double timeout)
-    : impl_(std::make_unique<Impl>(std::move(sensors), timeout)) {
+MavlinkBridge::MavlinkBridge(SensorModel sensors, std::uint16_t port, const std::string& host, double timeout, bool lockstep)
+    : impl_(std::make_unique<Impl>(std::move(sensors), timeout, lockstep)) {
     require_positive(timeout, "Actuator timeout");
     auto& p = *impl_;
     p.listener = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -452,7 +494,7 @@ std::uint64_t MavlinkBridge::sensor_timestamp_us() const { return impl_->sensor_
 
 bool MavlinkBridge::ready_to_step() const {
     return impl_->connected && impl_->send_buffer.empty()
-        && (!impl_->received_controls || impl_->control_timestamp_us >= impl_->sensor_timestamp_us);
+        && (!impl_->strict_lockstep || !impl_->received_controls || impl_->control_timestamp_us >= impl_->sensor_timestamp_us);
 }
 
 void MavlinkBridge::close() {
@@ -499,7 +541,14 @@ void MavlinkBridge::poll() {
             if (!p.failure.empty()) return;
         }
     }
-    if (p.connected && p.received_controls && p.control_timestamp_us < p.sensor_timestamp_us
+    // Rover controllers publish slower than the IMU, and may stop while disarmed.
+    // Keep sensors advancing, but never retain a stale armed motor command.
+    if (!p.strict_lockstep && p.connected && p.received_controls
+        && std::chrono::duration<double>(Clock::now() - p.control_received_wall_time).count() > p.control_timeout_s) {
+        p.armed = false;
+        p.controls.fill(0);
+    }
+    if (p.strict_lockstep && p.connected && p.received_controls && p.control_timestamp_us < p.sensor_timestamp_us
         && std::chrono::duration<double>(Clock::now() - p.sensor_sent_wall_time).count() > p.control_timeout_s)
         p.disconnect("PX4 actuator timeout; simulation stopped without reusing stale throttle");
 }

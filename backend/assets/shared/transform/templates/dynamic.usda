@@ -1,0 +1,32 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# Terrain collision and imagery are streamed by px4.isaac.terrain. There is no
+# fallback plane: the physics loop waits until the selected tiles are ready.
+def Xform "World"
+{
+    def DomeLight "Sky"
+    {
+        float inputs:intensity = 1000
+    }
+    def DistantLight "Sun"
+    {
+        float inputs:intensity = 2500
+        float3 xformOp:rotateXYZ = (315, 0, 25)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+    def Camera "ChaseCamera"
+    {
+        float2 clippingRange = (0.05, 20000)
+        float focalLength = 24
+    }
+    def PhysicsScene "PhysicsScene"
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 9.80665
+    }
+}

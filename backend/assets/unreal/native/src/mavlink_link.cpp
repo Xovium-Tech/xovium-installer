@@ -33,6 +33,8 @@ template<class T> T integer(double v) {
 }
 struct MavlinkLink::Impl {
     int listener=-1,client=-1,bound_port=0;
+    bool rover=false;
+    GeoOrigin origin;
     mavlink_status_t tx{},rx{};
     mavlink_message_t parser{};
     std::uint64_t last_sensor=0,last_gps=0,last_truth=0,last_heartbeat=0,last_control=0;
@@ -57,6 +59,8 @@ void MavlinkLink::close() {
     *impl_=Impl{};
 }
 int MavlinkLink::port() const { return impl_->bound_port; }
+void MavlinkLink::set_rover(bool enabled) { impl_->rover=enabled; }
+void MavlinkLink::set_origin(GeoOrigin origin) { impl_->origin=origin; }
 bool MavlinkLink::listen(int port_number,std::string& error) {
     close(); error.clear();
     if (port_number<0||port_number>65535) { error="Invalid TCP port"; return false; }
@@ -90,7 +94,7 @@ bool MavlinkLink::accept_client(double timeout,std::string& error) {
 bool MavlinkLink::send_state(const State& s,std::uint64_t time,std::string& error) {
     auto& p=*impl_; error.clear();
     if (p.client<0||time<=p.last_sensor||!valid(s)) { error="Invalid state, non-increasing time, or disconnected PX4"; return false; }
-    const auto r=sample_sensors(s);
+    const auto r=sample_sensors(s,p.origin);
     mavlink_message_t msg{};
     std::vector<std::uint8_t> bytes;
     auto append=[&]() {
@@ -122,7 +126,7 @@ bool MavlinkLink::send_state(const State& s,std::uint64_t time,std::string& erro
     }
     const auto a=r.specific_force_frd,m=r.magnetic_field_frd,g=s.angular_velocity_frd_radps;
     mavlink_msg_hil_sensor_pack_status(1,200,&p.tx,&msg,time,a.x,a.y,a.z,g.x,g.y,g.z,m.x,m.y,m.z,
-        r.pressure_hpa,r.differential_pressure_hpa,r.altitude_m,r.temperature_c,0x1FFF,0);
+        r.pressure_hpa,p.rover ? 0 : r.differential_pressure_hpa,r.altitude_m,r.temperature_c,0x1FFF,0);
     append();
     if (!p.send_bytes(bytes,error)) return false;
     p.last_sensor=time; return true;
@@ -147,12 +151,16 @@ MavlinkLink::ReceiveResult MavlinkLink::receive_controls(Controls& controls,doub
                 ||msg.msgid!=MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS) continue;
             mavlink_hil_actuator_controls_t actuator{};
             mavlink_msg_hil_actuator_controls_decode(&msg,&actuator);
-            if (!actuator.time_usec||actuator.time_usec<p.last_sensor||actuator.time_usec<=p.last_control) continue;
+            if (!actuator.time_usec||(!p.rover && actuator.time_usec<p.last_sensor)||actuator.time_usec<=p.last_control) continue;
             if (!(actuator.flags&1)) { error="PX4 build does not advertise lockstep; rebuild px4_sitl_default with lockstep enabled"; return ReceiveResult::Error; }
             for (int j=0;j<4;++j) if (!std::isfinite(actuator.controls[j])) { error="PX4 sent nonfinite actuator values"; return ReceiveResult::Error; }
             controls={}; controls.armed=(actuator.mode&MAV_MODE_FLAG_SAFETY_ARMED)!=0;
             if (controls.armed) controls={std::clamp(double(actuator.controls[0]),-1.0,1.0),std::clamp(double(actuator.controls[1]),-1.0,1.0),
                 std::clamp(double(actuator.controls[2]),-1.0,1.0),std::clamp(double(actuator.controls[3]),0.0,1.0),true};
+            if (controls.armed && p.rover) {
+                controls.right_wheel=std::clamp(double(actuator.controls[0]),-1.0,1.0);
+                controls.left_wheel=std::clamp(double(actuator.controls[1]),-1.0,1.0);
+            }
             p.last_control=actuator.time_usec; received=true;
         }
     } while (Clock::now()<deadline);

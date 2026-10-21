@@ -26,6 +26,7 @@ while (( $# )); do
     esac
 done
 validate_sim_settings
+[[ "$XOVIUM_VEHICLE" != r1_rover ]] || SIM_SPEED=1
 check_ue
 need_command setsid
 need_command flock

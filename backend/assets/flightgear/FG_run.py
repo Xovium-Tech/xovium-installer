@@ -166,6 +166,6 @@ baseparameters = [
 
 command = [fgbin] + baseparameters + shlex.split(fgargsex) + shlex.split(fgargsadd)
 print(shlex.join(command))
-process = subprocess.Popen(command)
+process = subprocess.Popen([sys.executable, str(Path(__file__).resolve().parent / 'FG_scene.py'), '--', *command])
 with open('/tmp/px4fgfspid_' + str(px4id), 'w') as pid_file:
     pid_file.write(str(process.pid) + '\n')

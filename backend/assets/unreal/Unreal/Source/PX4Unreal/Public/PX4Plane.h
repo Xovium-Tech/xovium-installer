@@ -33,6 +33,8 @@ private:
         const FVector& Position, const FVector& Scale);
     ue_px4::State ReadState(const FVector& AccelerationWorldCm) const;
     bool Bootstrap();
+    void ConfigureRover();
+    void ApplyRoverForces();
     void Fail(const FString& Reason);
 
     UPROPERTY() TObjectPtr<UBoxComponent> Body;
@@ -49,11 +51,13 @@ private:
     uint64 TimeUs = 1000000;
     uint64 StepUs = 4000;
     uint64 CompletedSteps = 0;
+    uint64 LastRoverControlsUs = 0;
     double StepSeconds = 0.004;
     double Speed = 1.0;
     double ControlTimeout = 30.0;
     double StartupTimeout = 120.0;
     double WallStart = 0.0;
+    bool bRover = false;
     bool bReady = false;
     bool bHaveControls = false;
     bool bStepPending = false;

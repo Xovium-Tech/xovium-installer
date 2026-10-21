@@ -24,6 +24,7 @@ struct SensorConfig {
 
 struct Config {
     std::string name;
+    std::string vehicle = "rc_cessna";
     double mass_kg = 1.5;
     Vec3 inertia_kg_m2{0.19, 0.08, 0.25};
     double wing_area_m2 = 0.45;
@@ -37,6 +38,20 @@ struct Config {
     double spawn_heading_deg = 0;
     Vec3 wind_enu_m_s{0, 0, 0};
     SensorConfig sensors;
+    struct Rover {
+        double wheel_radius_m = 0.0686;
+        double wheel_width_m = 0.0762;
+        double wheel_track_m = 0.32634;
+        double wheel_base_m = 0.3;
+        double wheel_center_z_m = 0.0215;
+        double wheel_mass_kg = 0.414;
+        double maximum_speed_m_s = 2.1;
+        double maximum_yaw_rate_rad_s = 2.5;
+        double maximum_torque_nm = 4.0;
+        double motor_time_constant_s = 0.12;
+        double motor_rate_per_s = 4.0;
+        double tire_friction = 0.8;
+    } rover;
 };
 
 Config load_config(const std::string& path);
@@ -122,7 +137,8 @@ private:
 class MavlinkBridge {
 public:
     explicit MavlinkBridge(SensorModel sensors, std::uint16_t port = 4560,
-                           const std::string& host = "127.0.0.1", double control_timeout_s = 30.0);
+                           const std::string& host = "127.0.0.1", double control_timeout_s = 30.0,
+                           bool strict_lockstep = true);
     ~MavlinkBridge();
     MavlinkBridge(const MavlinkBridge&) = delete;
     MavlinkBridge& operator=(const MavlinkBridge&) = delete;

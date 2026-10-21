@@ -64,6 +64,8 @@ double terrariumHeight(std::uint8_t red, std::uint8_t green, std::uint8_t blue);
 std::string expandUrl(const std::string& pattern, const TileKey& key);
 double syntheticElevation(double east, double north, const Config& config);
 std::vector<TileKey> desiredTiles(double east, double north, const Config& config);
+// Tiles intersecting a local collision safety footprint, independent of view radius.
+std::vector<TileKey> requiredTiles(double east, double north, double margin, const Config& config);
 TileMesh buildTile(const TileKey& key, const Config& config, const std::atomic_bool* cancelled = nullptr);
 
 class Streamer {

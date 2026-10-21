@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "assets": [
+    {"name": "baylands", "owner": "OpenRobotics", "version": 3, "license": "CC-BY-4.0", "license_url": "https://creativecommons.org/licenses/by/4.0/", "url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/baylands/3/baylands.zip", "sha256": "a6576c36823b61566b408a8cee2df97e9c926c3a004f1be6855680ace67f8f9b"},
+    {"name": "coast_water", "owner": "OpenRobotics", "version": 3, "license": "CC-BY-4.0", "license_url": "https://creativecommons.org/licenses/by/4.0/", "url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Coast%20Water/3/Coast%20Water.zip", "sha256": "41235ac0fec648ef6e31f392c06400daa39177eb5a5e5fa26bc346b93142059d"}
+  ]
+}

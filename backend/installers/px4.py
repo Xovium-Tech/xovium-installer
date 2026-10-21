@@ -126,7 +126,8 @@ def flightgear(ctx):
     bridge = ctx.copy_tree(upstream, "simulation/flightgear/bridge", omit=(".git", "models", "build", "__pycache__"))
     ctx.copy_tree(upstream / "models", "simulation/flightgear/models")
     internal_link(ctx, "simulation/flightgear/bridge/models", "simulation/flightgear/models")
-    for asset, destination in [("FG_run.py", "FG_run.py"), ("vehicle_state.cpp", "src/vehicle_state.cpp"),
+    for asset, destination in [("FG_run.py", "FG_run.py"), ("FG_rover.py", "FG_rover.py"), ("FG_scene.py", "FG_scene.py"),
+                               ("vehicle_state.cpp", "src/vehicle_state.cpp"),
                                ("Rascal110-Electric-YASim-set.xml", "models/Rascal/Rascal110-Electric-YASim-set.xml")]:
         relative = "simulation/flightgear/" + (destination if destination.startswith("models/") else "bridge/" + destination)
         ctx.copy_asset("flightgear/" + asset, relative)
@@ -140,8 +141,10 @@ def flightgear(ctx):
     runner = ctx.copy_tree(source / "Tools/simulation/flightgear/sitl_run.sh", "simulation/flightgear/bridge/sitl_run.sh")
     ctx.adapt_text(runner, [('${src_path}/Tools/simulation/flightgear/flightgear_bridge/', '${XOVIUM_FG_BRIDGE}/'),
                             ('${build_path}/build_flightgear_bridge/flightgear_bridge', '${XOVIUM_FG_BRIDGE}/build/flightgear_bridge')])
+    from installers.apps import rover_bridge
+    rover_native = rover_bridge(ctx)
     launch = flightgear_launcher(ctx)
-    return [launch, build / "bin/px4", bridge / "build/flightgear_bridge"]
+    return [launch, build / "bin/px4", bridge / "build/flightgear_bridge", rover_native / "build/xovium_rover"]
 
 
 def flightgear_launcher(ctx):
@@ -154,6 +157,18 @@ def flightgear_launcher(ctx):
     item = get(ctx.config.get('wizard', {}), 'flightgear')
     model = item['model_base'] if item['model'] == 'custom' else item['model']
     _, extra = launch_options(ctx, 'flightgear')
+    env = {**environment(ctx), "FG_HOME": base / "runtime", "XOVIUM_FG_BRIDGE": bridge,
+           "XOVIUM_ROVER_BRIDGE": ctx.prefix / "simulation/sih/bridge",
+           "XOVIUM_FG_ROVER_LAUNCHER": bridge / "FG_rover.py",
+           "FG_SCENERY": f"{base}/worlds:/usr/share/games/flightgear/Scenery", **extra}
+    env.pop('DONT_RUN', None)
+    if model == 'r1_rover':
+        env.update({"PX4_BUILD": source / "build/px4_sitl_default", "XOVIUM_VEHICLE": "r1_rover",
+                    "XOVIUM_FG_AIRCRAFT": extra.get("XOVIUM_FG_AIRCRAFT", base / "models/r1_rover/R1-set.xml")})
+        return ctx.launcher('flightgear', ['python3', ctx.prefix / 'simulation/sih/bridge/run_rover.py', '--flightgear'], env)
+    if model == 'rc_cessna':
+        model = 'rascal-electric'
+        env['XOVIUM_FG_AIRCRAFT'] = extra.get('XOVIUM_FG_AIRCRAFT', base / 'models/rc_cessna/Cessna-set.xml')
+        env['XOVIUM_VEHICLE'] = 'rc_cessna'
     return ctx.launcher("flightgear", ["bash", bridge / "sitl_run.sh", px4, model, source, build],
-                        env={"FG_HOME": base / "runtime", "XOVIUM_FG_BRIDGE": bridge,
-                             "FG_SCENERY": f"{base}/worlds:/usr/share/games/flightgear/Scenery", **extra})
+                        env=env)

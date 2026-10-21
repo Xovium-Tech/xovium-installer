@@ -1,5 +1,4 @@
 from installers.px4 import paths, environment
-from xovium.core import digest
 from xovium.layout import simulator
 
 
@@ -71,7 +70,7 @@ def px4_launcher(ctx):
     env["GZ_IP"] = "127.0.0.1"
     env["PX4_GZ_WORLD"] = "default"
     if ctx.config["plugins"]:
-        env["PX4_GZ_WORLD"] = "mcmillan_airfield_gz"
+        env["PX4_GZ_WORLD"] = "xovium_terrain"
     if ctx.config.get("wizard"):
         from xovium.profiles import gazebo_settings
         env.update(gazebo_settings(ctx, ctx.config["wizard"]))
@@ -110,31 +109,4 @@ def plugins_for(ctx, backend):
                 "-DCMAKE_BUILD_TYPE=Release", *extra, env={"CC": "/usr/bin/gcc", "CXX": "/usr/bin/g++"})
         ctx.run("cmake", "--build", build, "--parallel", ctx.options.jobs)
         outputs.extend(build / name for name in libraries)
-    if ctx.config.get('wizard'):
-        return outputs
-    for name in ["models", "worlds"]:
-        ctx.copy_asset("gazebo/" + name, f"simulation/gazebo-{backend}/{name}")
-    server = base / "bridge/server.config"
-    contents = server.read_text().replace("libGstCameraSystem.so", "libGstPlaneCameraSystem.so").replace(
-        "custom::GstCameraSystem", "custom::GstPlaneCameraSystem")
-    server.write_text(contents)
-    fragment = ctx.assets / "patches/dynamic-terrain-functions.sh"
-    configure = '''source "$1"
-dynamic_terrain_root() { printf '%s/plugins/terrain\\n' "$XOVIUM_SIM"; }
-dynamic_terrain_paths() {
-    DYNAMIC_TERRAIN_WORLD="$XOVIUM_SIM/worlds/mcmillan_airfield_gz.sdf"
-    DYNAMIC_TERRAIN_MODEL="$XOVIUM_SIM/models/rc_cessna/model.sdf"
-    DYNAMIC_TERRAIN_STATIC_MODEL="$XOVIUM_SIM/models/uneven_ground"
-    DYNAMIC_TERRAIN_SERVER_CONFIG="$XOVIUM_SIM/bridge/server.config"
-}
-configure_dynamic_terrain_ground_mode
-configure_dynamic_terrain_plugin
-'''
-    ctx.run("bash", "--noprofile", "--norc", "-euc", configure,
-            "xovium-terrain", fragment, env={"XOVIUM_SIM": base, "GAZEBO_VARIANT": backend,
-                                          "DYNAMIC_GAZEBO_HEADLESS": "true"})
-    for path in [server, base / "worlds/mcmillan_airfield_gz.sdf", base / "models/rc_cessna/model.sdf"]:
-        ctx.state["copied_assets"][str(path.relative_to(ctx.prefix))] = digest(path)
-    ctx.save()
-    outputs.extend([server, px4_launcher(ctx)])
     return outputs

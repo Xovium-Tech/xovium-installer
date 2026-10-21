@@ -1,0 +1,112 @@
+name: Source archive
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-archive-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-source-build:
+    name: Ubuntu 24.04 source build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      XOVIUM_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install GUI build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake git pkg-config python3.12 util-linux zenity xdg-utils \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
+
+      - name: Create and extract the source ZIP
+        run: |
+          python3 -B - <<'PY'
+          import os
+          from pathlib import Path, PurePosixPath
+          import re
+          import subprocess
+          import zipfile
+
+          version = re.search(r'project\(xovium_installer\s+VERSION\s+(\d+\.\d+\.\d+)', Path('CMakeLists.txt').read_text()).group(1)
+          if os.environ.get('GITHUB_REF_TYPE') == 'tag':
+              assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Release tag and source version differ'
+          name = os.environ['GITHUB_REPOSITORY'].split('/')[-1] + '-v' + version
+          archive = Path(os.environ['RUNNER_TEMP']) / (name + '.zip')
+          subprocess.run(['git', 'archive', '--format=zip', '--prefix=' + name + '/', '-o', str(archive), 'HEAD'], check=True)
+          destination = Path(os.environ['RUNNER_TEMP']) / 'source-archive'
+          required = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app/bootstrap.py', 'backend/xovium_installer.py'}
+          resources = {'.sdf', '.usd', '.usda', '.usdc', '.xml', '.dae', '.ac', '.obj', '.fbx', '.mtl', '.png', '.jpg', '.jpeg', '.tga', '.dds', '.webp', '.exr', '.hdr'}
+          tracked = subprocess.check_output(['git', 'ls-files', '-z', 'backend/assets']).decode().split('\0')
+          required.update(path for path in tracked if path and Path(path).suffix.lower() in resources)
+          with zipfile.ZipFile(archive) as zipped:
+              names = {item.filename.removeprefix(name + '/') for item in zipped.infolist() if not item.is_dir()}
+              assert required <= names, 'Source ZIP is missing required files: ' + str(sorted(required - names))
+              allowed = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app', 'backend'}
+              excluded = {'.github', '.build', 'build', 'dist', 'cache', '__pycache__', 'tests', 'test', 'docs', 'examples', 'screenshots', 'videos', 'Binaries', 'Intermediate', 'Saved'}
+              for path in names:
+                  parts = PurePosixPath(path).parts
+                  assert parts[0] in allowed and not excluded.intersection(parts), 'Unexpected archive member: ' + path
+              zipped.extractall(destination)
+              for item in zipped.infolist():
+                  mode = (item.external_attr >> 16) & 0o777
+                  if mode:
+                      (destination / item.filename).chmod(mode)
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('SOURCE_DIR=' + str(destination / name) + '\n')
+          print(f'Validated {len(names)} source/resource files in {archive.name}')
+          PY
+
+      - name: Validate source and resource syntax
+        working-directory: ${{ env.SOURCE_DIR }}
+        run: |
+          python3 -B - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+          import subprocess
+          import tomllib
+          import xml.etree.ElementTree as ET
+
+          checked = 0
+          for path in sorted(Path('.').rglob('*')):
+              if not path.is_file():
+                  continue
+              if path.suffix == '.py':
+                  ast.parse(path.read_text(), filename=str(path))
+              elif path.suffix in ('.json', '.uproject'):
+                  json.loads(path.read_text())
+              elif path.suffix == '.toml':
+                  tomllib.loads(path.read_text())
+              elif path.suffix in ('.xml', '.sdf'):
+                  ET.parse(path)
+              elif path.name.endswith(('.sh', '.sh.in')):
+                  subprocess.run(['bash', '-n', str(path)], check=True)
+              else:
+                  continue
+              checked += 1
+          print(f'Validated {checked} scripts and resource configurations without importing simulator dependencies')
+          PY
+          ./install.sh --cli --help
+
+      - name: Build the extracted installer
+        working-directory: ${{ env.SOURCE_DIR }}
+        run: |
+          test "$(uname -m)" = x86_64
+          ./install.sh --build-only
+          test -x .build/cmake/xovium-installer
+          test -x .build/cmake/xovium-askpass

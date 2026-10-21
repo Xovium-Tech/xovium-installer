@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${XOVIUM_VEHICLE:-rc_cessna}" == r1_rover ]]; then
+    exec python3 "$SCRIPT_DIR/run_rover.py" -- "$@"
+fi
 SHARED_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PX4_DIR="${PX4_DIR:-$SHARED_ROOT/.deps/PX4-Autopilot}"
 PX4_BUILD="${PX4_BUILD:-$PX4_DIR/build/px4_sitl_default}"

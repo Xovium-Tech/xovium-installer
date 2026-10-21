@@ -7,7 +7,7 @@ case "${1:-}" in
   --uninstall) shift; exec python3 -B "$KIT/backend/xovium_installer.py" uninstall "$@" ;;
   --help|-h)
     cat <<'HELP'
-Xovium Installer 0.2.0 — Ubuntu 24.04 x86-64
+Xovium Installer 0.3.0 — Ubuntu 24.04 x86-64
   ./install.sh                          Build/open the C++ installation wizard
   ./install.sh --build-only             Build the wizard only
   ./install.sh --cli --help             Scriptable installer commands
@@ -18,7 +18,7 @@ First GUI build needs git, cmake, g++, Python 3.12, X11/OpenGL development packa
 GUI libraries use pinned upstream versions; source archives are cached locally.
 HELP
     exit ;;
-  --all|-PX4|--px4|-QGC|--qgc|--gazebo-*|--prefix|--status|--dry-run|--relocate|--refresh-launchers|--print-prefix|-unreal-engine|--unreal-engine|--flightgear|--isaac|--sih|--mavlink-router|--jobs)
+  --all|-PX4|--px4|-QGC|--qgc|--gazebo-*|--prefix|--status|--dry-run|--relocate|--refresh-launchers|--refresh-assets|--print-prefix|-unreal-engine|--unreal-engine|--flightgear|--isaac|--sih|--mavlink-router|--jobs)
     exec python3 -B "$KIT/backend/xovium_installer.py" "$@" ;;
 esac
 command -v python3 >/dev/null || { printf 'Python 3 is required. Install python3 first.\n' >&2; exit 1; }

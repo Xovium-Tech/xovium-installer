@@ -5,6 +5,70 @@
 *.png binary
 /backend/assets/patches/*.patch -whitespace
 
-/.gitattributes export-ignore
-/.gitignore export-ignore
-/backend/.gitignore export-ignore
+# Unreal requires these C# build rules; omit configuration from language stats.
+/backend/assets/unreal/Unreal/Source/*.Target.cs linguist-detectable=false
+/backend/assets/unreal/Unreal/Source/PX4Unreal/*.Build.cs linguist-detectable=false
+# Isaac .kit files are TOML configuration, not Kit HTML templates.
+*.kit linguist-language=TOML
+
+# Source releases contain only the installer and its runtime resources.
+# Keep this root allowlist in sync when adding a new build entry point.
+/* export-ignore
+/CMakeLists.txt -export-ignore
+/install.sh -export-ignore
+/LICENSE -export-ignore
+/README.md -export-ignore
+/THIRD_PARTY.md -export-ignore
+/app -export-ignore
+/backend -export-ignore
+
+# Development metadata, documentation media and examples are not release inputs.
+**/.gitignore export-ignore
+**/.gitattributes export-ignore
+**/.github/** export-ignore
+**/.agents/** export-ignore
+**/.codex/** export-ignore
+**/docs/** export-ignore
+**/tests/** export-ignore
+**/test/** export-ignore
+**/examples/** export-ignore
+**/screenshots/** export-ignore
+**/videos/** export-ignore
+
+# Generated binaries, downloaded archives and local state never belong in a
+# source archive. Do not exclude mesh formats (.obj/.fbx) or texture images:
+# those are required simulator resources under backend/assets.
+**/.build/** export-ignore
+**/build/** export-ignore
+**/build-*/** export-ignore
+**/dist/** export-ignore
+**/cache/** export-ignore
+**/.cache/** export-ignore
+**/__pycache__/** export-ignore
+**/.pytest_cache/** export-ignore
+**/.venv/** export-ignore
+**/CMakeFiles/** export-ignore
+**/Binaries/** export-ignore
+**/Intermediate/** export-ignore
+**/Saved/** export-ignore
+**/DerivedDataCache/** export-ignore
+*.py[cod] export-ignore
+*.o export-ignore
+*.a export-ignore
+*.so export-ignore
+*.so.* export-ignore
+*.dll export-ignore
+*.dylib export-ignore
+*.exe export-ignore
+*.pdb export-ignore
+*.zip export-ignore
+*.tar.gz export-ignore
+*.7z export-ignore
+*.log export-ignore
+CMakeCache.txt export-ignore
+compile_commands.json export-ignore
+local.env export-ignore
+.env export-ignore
+.env.* export-ignore
+*.lock export-ignore
+.xovium* export-ignore

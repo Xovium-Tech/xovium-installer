@@ -1,34 +1,4 @@
 {
-  "scripts/run_unreal.sh": [
-    [
-      "[[ -f $UE_PROJECT ]] || die \"Unreal project missing: $UE_PROJECT\"\n[[ -f $PROJECT_ROOT/Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so ]] || die 'Build the project first: ./scripts/build_unreal.sh'\nmkdir -p -- \"$RUNTIME_DIR\"\nargs=(\"$UE_PROJECT\" '/Engine/Maps/Entry?game=/Script/PX4Unreal.PX4GameMode'\n    -unattended -log -nosound \"-abslog=$RUNTIME_DIR/unreal-$PX4_INSTANCE.log\"\n    \"-PX4Port=$((4560 + PX4_INSTANCE))\" \"-SimHz=$SIM_HZ\" \"-SimSpeed=$SIM_SPEED\"\n    \"-PX4Timeout=$PX4_TIMEOUT\" \"-PX4StartupTimeout=$PX4_STARTUP_TIMEOUT\")\nargs+=(-game)\ncase \"$render_mode\" in\n    headless) args+=(-nullrhi) ;;\n    offscreen) args+=(-RenderOffscreen -vulkan) ;;\n",
-      "[[ -f $UE_PROJECT ]] || die \"Unreal project missing: $UE_PROJECT\"\n[[ -f $PROJECT_ROOT/Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so ]] || die 'Build the project first: ./scripts/build_unreal.sh'\nmkdir -p -- \"$RUNTIME_DIR\"\nargs=(\"$UE_PROJECT\" \"${XOVIUM_UE_WORLD:-/Engine/Maps/Entry}?game=/Script/PX4Unreal.PX4GameMode\"\n    -unattended -log -nosound \"-abslog=$RUNTIME_DIR/unreal-$PX4_INSTANCE.log\"\n    \"-PX4Port=$((4560 + PX4_INSTANCE))\" \"-SimHz=$SIM_HZ\" \"-SimSpeed=$SIM_SPEED\"\n    \"-PX4Timeout=$PX4_TIMEOUT\" \"-PX4StartupTimeout=$PX4_STARTUP_TIMEOUT\")\nargs+=(-game)\n[[ -z ${XOVIUM_UE_WORLD:-} ]] || args+=(-PX4CustomWorld)\n[[ -z ${XOVIUM_UE_MODEL:-} ]] || args+=(\"-PX4Model=$XOVIUM_UE_MODEL\")\ncase \"$render_mode\" in\n    headless) args+=(-nullrhi) ;;\n    offscreen) args+=(-RenderOffscreen -vulkan) ;;\n"
-    ],
-    [
-      "    normal) args+=(-vulkan) ;;",
-      "    normal) args+=(-vulkan -windowed -ResX=1280 -ResY=720) ;;"
-    ],
-    [
-      "Run the compiled fixed-wing simulator; start ./run_px4.sh in another terminal.",
-      "Run the compiled fixed-wing simulator; start ./run_px4.sh in another terminal.\nVisible simulation starts in a 1280x720 window."
-    ]
-  ],
-  "Unreal/Source/PX4Unreal/Private/PX4GameMode.cpp": [
-    [
-      "#include \"Materials/MaterialInstanceDynamic.h\"\n#include \"Materials/MaterialInterface.h\"\n#include \"PX4Plane.h\"\n\nAPX4GameMode::APX4GameMode()\n{\n",
-      "#include \"Materials/MaterialInstanceDynamic.h\"\n#include \"Materials/MaterialInterface.h\"\n#include \"PX4Plane.h\"\n#include \"Misc/CommandLine.h\"\n#include \"Misc/Parse.h\"\n\nAPX4GameMode::APX4GameMode()\n{\n"
-    ],
-    [
-      "    GetWorld()->GetWorldSettings()->KillZ = -10000000.0f;\n    GetWorld()->GetWorldSettings()->bGlobalGravitySet = true;\n    GetWorld()->GetWorldSettings()->GlobalGravityZ = -980.665f;\n    BuildEnvironment();\n\n    FActorSpawnParameters Parameters;\n    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;\n",
-      "    GetWorld()->GetWorldSettings()->KillZ = -10000000.0f;\n    GetWorld()->GetWorldSettings()->bGlobalGravitySet = true;\n    GetWorld()->GetWorldSettings()->GlobalGravityZ = -980.665f;\n    if (!FParse::Param(FCommandLine::Get(), TEXT(\"PX4CustomWorld\"))) BuildEnvironment();\n\n    FActorSpawnParameters Parameters;\n    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;\n"
-    ]
-  ],
-  "Unreal/Source/PX4Unreal/Private/PX4Plane.cpp": [
-    [
-      "        }\n    }\n\n    std::string Error;\n    if (!Link.listen(Port, Error))\n    {\n",
-      "        }\n    }\n\n    FString CustomModel;\n    if (FParse::Value(FCommandLine::Get(), TEXT(\"PX4Model=\"), CustomModel))\n    {\n        UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *CustomModel);\n        if (!Mesh) { Fail(TEXT(\"Cannot load the selected aircraft static mesh.\")); return; }\n        for (const auto& Visual : Visuals) Visual->SetVisibility(false);\n        auto* CustomVisual = NewObject<UStaticMeshComponent>(this, TEXT(\"CustomAircraftVisual\"));\n        AddInstanceComponent(CustomVisual);\n        CustomVisual->SetupAttachment(Body);\n        CustomVisual->SetMobility(EComponentMobility::Movable);\n        CustomVisual->SetStaticMesh(Mesh);\n        CustomVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);\n        CustomVisual->RegisterComponent();\n        UE_LOG(LogPX4Plane, Display, TEXT(\"Custom aircraft mesh: %s\"), *CustomModel);\n    }\n\n    std::string Error;\n    if (!Link.listen(Port, Error))\n    {\n"
-    ]
-  ],
   "tools/prepare_px4.py": [
     [
       "    return startup, mavlink",

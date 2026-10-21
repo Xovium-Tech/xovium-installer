@@ -14,6 +14,12 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PX4Plane.h"
+#include "PX4Terrain.h"
+#include "HAL/PlatformMisc.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 APX4GameMode::APX4GameMode()
 {
@@ -27,12 +33,35 @@ void APX4GameMode::BeginPlay()
     GetWorld()->GetWorldSettings()->KillZ = -10000000.0f;
     GetWorld()->GetWorldSettings()->bGlobalGravitySet = true;
     GetWorld()->GetWorldSettings()->GlobalGravityZ = -980.665f;
-    BuildEnvironment();
+    FString TerrainConfig;
+    const bool bDynamic=FParse::Value(FCommandLine::Get(),TEXT("PX4TerrainConfig="),TerrainConfig);
+    if (bDynamic || !FParse::Param(FCommandLine::Get(), TEXT("PX4CustomWorld"))) BuildEnvironment();
+    APX4Terrain* StreamedTerrain=nullptr;
+    if (bDynamic)
+    {
+        StreamedTerrain=GetWorld()->SpawnActor<APX4Terrain>();
+        if (!StreamedTerrain || !StreamedTerrain->LoadSharedConfig(TerrainConfig))
+        { UE_LOG(LogTemp,Error,TEXT("Invalid shared dynamic terrain configuration: %s"),*TerrainConfig); FPlatformMisc::RequestExitWithStatus(false,1); return; }
+        StreamedTerrain->RefreshTerrain();
+        const double Deadline=FPlatformTime::Seconds()+120;
+        FHitResult TerrainGround;
+        while (FPlatformTime::Seconds()<Deadline && !StreamedTerrain->TraceGround(FVector::ZeroVector,TerrainGround))
+        { StreamedTerrain->Tick(.05); FPlatformProcess::SleepNoStats(.05); }
+        if (!StreamedTerrain->TraceGround(FVector::ZeroVector,TerrainGround))
+        { UE_LOG(LogTemp,Error,TEXT("Shared dynamic terrain did not provide spawn collision within 120 seconds.")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
+    }
 
     FActorSpawnParameters Parameters;
     Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    APX4Plane* Plane = GetWorld()->SpawnActor<APX4Plane>(FVector(0, 0, 16),
+    FString Vehicle;
+    FParse::Value(FCommandLine::Get(), TEXT("PX4Vehicle="), Vehicle);
+    FVector Spawn(0,0,Vehicle == TEXT("r1_rover") ? 18 : 16);
+    FHitResult Ground;
+    if (GetWorld()->LineTraceSingleByChannel(Ground,FVector(0,0,100000),FVector(0,0,-100000),ECC_Visibility))
+        Spawn.Z += Ground.ImpactPoint.Z;
+    APX4Plane* Plane = GetWorld()->SpawnActor<APX4Plane>(Spawn,
         FRotator::ZeroRotator, Parameters);
+    if (StreamedTerrain) StreamedTerrain->FollowActor=Plane;
     if (APlayerController* Player = GetWorld()->GetFirstPlayerController())
     {
         if (Plane)
@@ -69,6 +98,9 @@ void APX4GameMode::BuildEnvironment()
         Mesh->SetMobility(EComponentMobility::Static);
     };
 
+    FString TerrainConfig;
+    if (!FParse::Value(FCommandLine::Get(),TEXT("PX4TerrainConfig="),TerrainConfig))
+    {
     Box(FVector(0, 0, -10), FVector(4000, 4000, 0.2), FLinearColor(0.10f, 0.20f, 0.075f), true);
     Box(FVector(30000, 0, 1.5), FVector(800, 24, 0.03), FLinearColor(0.075f, 0.08f, 0.09f), true);
     for (int32 Index = 0; Index < 40; ++Index)
@@ -77,6 +109,7 @@ void APX4GameMode::BuildEnvironment()
     }
     Box(FVector(30000, -1100, 3.2), FVector(790, 0.15, 0.002), FLinearColor::White, false);
     Box(FVector(30000, 1100, 3.2), FVector(790, 0.15, 0.002), FLinearColor::White, false);
+    }
 
     ADirectionalLight* Sun = GetWorld()->SpawnActor<ADirectionalLight>(
         FVector(0, 0, 20000), FRotator(-40, -30, 0));

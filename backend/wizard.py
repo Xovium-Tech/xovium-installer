@@ -23,11 +23,12 @@ BOOLS = {'jetty', 'harmonic', 'sih', 'flightgear', 'unreal', 'isaac_sih', 'isaac
 
 def validate(data, root):
     expected = FIELDS | ({'simulations'} if isinstance(data, dict) and data.get('schema') in (2, 3, 4) else set())
-    if isinstance(data, dict) and data.get('schema') in (3, 4): expected |= {'qgc_version', 'router_ports'}
-    if isinstance(data, dict) and data.get('schema') == 4: expected.add('px4_version')
+    if isinstance(data, dict) and data.get('schema') in (3, 4, 5): expected |= {'qgc_version', 'router_ports'}
+    if isinstance(data, dict) and data.get('schema') in (4, 5): expected.add('px4_version')
+    if isinstance(data, dict) and data.get('schema') == 5: expected.add('shared_selection')
     if not isinstance(data, dict) or set(data) != expected:
         raise Error('Invalid wizard request fields; reopen the wizard and review the selection.')
-    if data['schema'] not in (1, 2, 3, 4) or data['autopilot'] != 'PX4' or data['mode'] != 'SITL':
+    if data['schema'] not in (1, 2, 3, 4, 5) or data['autopilot'] != 'PX4' or data['mode'] != 'SITL':
         raise Error('This version supports PX4 SITL only.')
     if any(type(data[k]) is not bool for k in BOOLS):
         raise Error('Checkbox values must be booleans.')
@@ -90,6 +91,8 @@ def execute(data, *, dry):
     def operation():
         plan = cli.configure(ctx, cli.selection(options))
         ctx.config['wizard'] = profiles.merge_selection(ctx.config.get('wizard', {}), data)
+        # Global choices apply to all retained components, including CLI installs.
+        plan = simulation_profiles.configure_shared(ctx.config)
         print('Wizard profile: ' + json.dumps(data, sort_keys=True), flush=True)
         if ctx.state.get('components'):
             print('Existing components are retained; unchecked boxes do not uninstall previous selections.', flush=True)
@@ -130,6 +133,9 @@ def main():
         for port in router_config.read(prefix / 'tools/mavlink-router/main.conf').values(): print(port)
         print(state.get('config', {}).get('px4_version', compatibility.DEFAULT))
         print('installed' if state.get('components', {}).get('px4') else 'new')
+        shared = state.get('config', {}).get('wizard', {}).get('shared_selection', {})
+        for key, default in [('world', 'baylands'), ('model', 'rc_cessna'), ('model_path', ''), ('model_base', 'rc_cessna')]:
+            print(shared.get(key, default))
     elif options.uninstall or options.uninstall_preview:
         return cli.main(['uninstall'] + (['--dry-run'] if options.uninstall_preview else []))
     else:

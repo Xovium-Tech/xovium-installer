@@ -71,7 +71,7 @@ if [[ -d "$PX4_ROOT/.git" || -f "$PX4_ROOT/.git" ]]; then
     fi
 fi
 
-PX4_RUNTIME="${PX4_RUNTIME:-$RUNTIME_DIR/px4-$PX4_INSTANCE}"
+PX4_RUNTIME="${PX4_RUNTIME:-$RUNTIME_DIR/px4-$XOVIUM_VEHICLE-$PX4_INSTANCE}"
 mkdir -p -- "$PX4_RUNTIME"
 PX4_RUNTIME="$(realpath -e -- "$PX4_RUNTIME")"
 exec 9>"$PX4_RUNTIME/.launcher.lock"
@@ -88,12 +88,22 @@ export PX4_MAVLINK_STARTUP="$PX4_RUNTIME/px4-rc.mavlink"
 export PX4_SIM_MODEL=gazebo-classic_plane
 export PX4_SIMULATOR=unreal
 export PX4_SYS_AUTOSTART=1030
+if [[ "$XOVIUM_VEHICLE" == r1_rover ]]; then
+    [[ -f "$PX4_BUILD/etc/init.d-posix/airframes/4009_gz_r1_rover" ]] || die 'PX4 R1 rover airframe is missing; repair PX4.'
+    export PX4_UNREAL_AIRFRAME="$PROJECT_ROOT/config/px4_rover_airframe.sh"
+    export PX4_SIM_MODEL=gz_r1_rover
+    export PX4_SYS_AUTOSTART=4009
+fi
 if [[ -z "${PX4_SIM_HOSTNAME:-}" ]]; then
     export PX4_SIM_HOST_ADDR="${PX4_SIM_HOST_ADDR:-127.0.0.1}"
 fi
 printf 'PX4 v1.16: Unreal physics/sensors at TCP %s:%s; runtime %s\n' \
     "${PX4_SIM_HOSTNAME:-${PX4_SIM_HOST_ADDR:-127.0.0.1}}" "$((4560 + PX4_INSTANCE))" "$PX4_RUNTIME"
-printf '%s\n' 'Actuator channels: 0 aileron, 1 elevator, 2 rudder, 3 throttle. QGroundControl: UDP 14550.'
+if [[ "$XOVIUM_VEHICLE" == r1_rover ]]; then
+    printf '%s\n' 'R1 rover: signed actuator channels 0 right wheels, 1 left wheels.'
+else
+    printf '%s\n' 'Actuator channels: 0 aileron, 1 elevator, 2 rudder, 3 throttle. QGroundControl: UDP 14550.'
+fi
 if [[ "$PX4_MAVLINK_ROUTER" == 1 ]]; then
     printf '%s\n' 'Offboard connection is delegated to your MAVLink router.'
 else

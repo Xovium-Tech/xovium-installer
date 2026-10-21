@@ -37,6 +37,32 @@ std::array<double, 3> ecef(double latitude, double longitude, double altitude) {
             (n * (1 - e2) + altitude) * std::sin(lat)};
 }
 
+std::array<double, 2> tileCoordinates(double east, double north, const Config& config) {
+    if (!std::isfinite(east) || !std::isfinite(north) || std::abs(east) > 10000000 || std::abs(north) > 10000000)
+        throw std::invalid_argument("Terrain target position is outside the supported ENU region");
+    if (config.source == "procedural") return {east / config.tileSize, north / config.tileSize};
+    // Invert the projection used by buildTile. A spherical approximation can
+    // select the wrong collision tile near an edge, particularly at high latitude.
+    double latitude = config.originLatitude + degrees(north / radiusEarth);
+    double longitude = config.originLongitude + degrees(east / (radiusEarth * std::cos(radians(config.originLatitude))));
+    constexpr double epsilon = 1e-5;
+    for (int iteration = 0; iteration < 8; ++iteration) {
+        const auto position = geographicToEnu(latitude, longitude, config.originAltitude, config);
+        const double de = east - position[0], dn = north - position[1];
+        if (std::hypot(de, dn) < 1e-4) return geographicToTile(latitude, longitude, config.zoom);
+        const auto lat = geographicToEnu(latitude + epsilon, longitude, config.originAltitude, config);
+        const auto lon = geographicToEnu(latitude, longitude + epsilon, config.originAltitude, config);
+        const double a = (lat[0] - position[0]) / epsilon, b = (lon[0] - position[0]) / epsilon;
+        const double c = (lat[1] - position[1]) / epsilon, d = (lon[1] - position[1]) / epsilon;
+        const double determinant = a * d - b * c;
+        if (std::abs(determinant) < 1e-8) break;
+        latitude += (de * d - b * dn) / determinant;
+        longitude += (a * dn - de * c) / determinant;
+        if (!std::isfinite(latitude) || std::abs(latitude) > 85.05112878 || !std::isfinite(longitude)) break;
+    }
+    throw std::invalid_argument("Terrain target cannot be projected into the local ENU region");
+}
+
 std::string fingerprint(const std::string& input) {
     std::uint64_t hash = 14695981039346656037ULL;
     for (unsigned char byte : input) { hash ^= byte; hash *= 1099511628211ULL; }
@@ -251,19 +277,8 @@ double syntheticElevation(double east, double north, const Config& config) {
 }
 
 std::vector<TileKey> desiredTiles(double east, double north, const Config& config) {
-    if (!std::isfinite(east) || !std::isfinite(north) || std::abs(east) > 10000000 || std::abs(north) > 10000000)
-        throw std::invalid_argument("Terrain target position is outside the supported ENU region");
-    int centerX, centerY;
-    if (config.source == "procedural") {
-        centerX = static_cast<int>(std::floor(east / config.tileSize));
-        centerY = static_cast<int>(std::floor(north / config.tileSize));
-    } else {
-        const double latitude = config.originLatitude + degrees(north / radiusEarth);
-        const double longitude = config.originLongitude + degrees(east / (radiusEarth * std::cos(radians(config.originLatitude))));
-        const auto tile = geographicToTile(latitude, longitude, config.zoom);
-        centerX = static_cast<int>(std::floor(tile[0]));
-        centerY = static_cast<int>(std::floor(tile[1]));
-    }
+    const auto center = tileCoordinates(east, north, config);
+    const int centerX = static_cast<int>(std::floor(center[0])), centerY = static_cast<int>(std::floor(center[1]));
     std::vector<TileKey> result;
     for (int y = centerY - config.radius; y <= centerY + config.radius; ++y)
         for (int x = centerX - config.radius; x <= centerX + config.radius; ++x) {
@@ -272,6 +287,36 @@ std::vector<TileKey> desiredTiles(double east, double north, const Config& confi
         }
     std::stable_sort(result.begin(), result.end(), [&](const TileKey& a, const TileKey& b) {
         return std::hypot(a.x - centerX, a.y - centerY) < std::hypot(b.x - centerX, b.y - centerY);
+    });
+    return result;
+}
+
+std::vector<TileKey> requiredTiles(double east, double north, double margin, const Config& config) {
+    if (!std::isfinite(margin) || margin < 0 || margin > 4096)
+        throw std::invalid_argument("Invalid terrain collision footprint");
+    const auto center = tileCoordinates(east, north, config);
+    auto low = center, high = center;
+    for (double dx : {-margin, 0.0, margin})
+        for (double dy : {-margin, 0.0, margin}) {
+            const auto corner = tileCoordinates(east + dx, north + dy, config);
+            for (int axis = 0; axis < 2; ++axis) {
+                low[axis] = std::min(low[axis], corner[axis]);
+                high[axis] = std::max(high[axis], corner[axis]);
+            }
+        }
+    const int minX = static_cast<int>(std::floor(low[0])), maxX = static_cast<int>(std::floor(high[0]));
+    const int minY = static_cast<int>(std::floor(low[1])), maxY = static_cast<int>(std::floor(high[1]));
+    if (static_cast<long long>(maxX - minX + 1) * (maxY - minY + 1) > 4096)
+        throw std::invalid_argument("Terrain collision footprint exceeds the supported tile budget");
+    std::vector<TileKey> result;
+    for (int y = minY; y <= maxY; ++y)
+        for (int x = minX; x <= maxX; ++x) {
+            if (config.source == "xyz" && (x < 0 || y < 0 || x >= (1 << config.zoom) || y >= (1 << config.zoom))) continue;
+            result.push_back({x, y, config.source == "xyz" ? config.zoom : 0});
+        }
+    std::stable_sort(result.begin(), result.end(), [&](const TileKey& a, const TileKey& b) {
+        return std::hypot(a.x + .5 - center[0], a.y + .5 - center[1]) <
+               std::hypot(b.x + .5 - center[0], b.y + .5 - center[1]);
     });
     return result;
 }
@@ -369,9 +414,13 @@ void Streamer::request(const std::vector<TileKey>& desired) {
         if (!desired_.count(*iterator)) iterator = scheduled_.erase(iterator); else ++iterator;
     for (auto iterator = retries_.begin(); iterator != retries_.end();)
         if (!desired_.count(iterator->first)) iterator = retries_.erase(iterator); else ++iterator;
-    queue_.erase(std::remove_if(queue_.begin(), queue_.end(), [&](const TileKey& key) { return !desired_.count(key); }), queue_.end());
+    std::set<TileKey> pending(queue_.begin(), queue_.end());
+    queue_.clear();
     for (const auto& key : desired)
-        if (!scheduled_.count(key) && !retries_.count(key)) { queue_.push_back(key); scheduled_.insert(key); }
+        if (!retries_.count(key) && (pending.erase(key) || !scheduled_.count(key))) {
+            queue_.push_back(key);
+            scheduled_.insert(key);
+        }
     condition_.notify_one();
 }
 

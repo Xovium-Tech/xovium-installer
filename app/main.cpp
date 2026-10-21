@@ -27,19 +27,16 @@ static const ImVec4 muted{0.57f, 0.63f, 0.72f, 1};
 static const ImVec4 green{0.44f, 0.83f, 0.64f, 1};
 static const ImVec4 amber{1.f, 0.72f, 0.40f, 1};
 static ImFont *bodyFont = nullptr, *titleFont = nullptr;
-static const char* worlds[] = {"Default / open ground", "Baylands", "Forest", "Windy", "Generated training field", "McMillan airfield", "Custom SDF world...", "Dynamic Terrain"};
-static const char* worldIds[] = {"default", "baylands", "forest", "windy", "generated", "airfield", "custom", "dynamic"};
-static const char* models[] = {"X500 quadrotor", "RC Cessna airplane", "Standard VTOL", "R1 rover", "Custom SDF model..."};
-static const char* modelIds[] = {"x500", "rc_cessna", "standard_vtol", "r1_rover", "custom"};
-static const char* fgModels[] = {"Rascal electric", "Rascal", "TF-G1", "TF-G2", "TF-R1", "Custom aircraft..."};
-static const char* fgIds[] = {"rascal-electric", "rascal", "tf-g1", "tf-g2", "tf-r1", "custom"};
-
-static const char* simIds[] = {"gazebo-jetty", "gazebo-harmonic", "flightgear", "isaac", "sih", "unreal-engine"};
-static const char* simNames[] = {"Gazebo Jetty", "Gazebo Harmonic", "FlightGear", "Isaac / PhysX", "SIH", "Unreal Engine"};
-static const char* defaultWorlds[] = {"", "", "Supplied scenery", "Runway", "PX4 flat ground", "Generated runway"};
-struct SimulationSelection {
-    int world = 0, model = 0, baseModel = 0, seed = 42;
-    std::array<char, 4096> worldPath{}, modelPath{};
+static const char* sharedWorlds[] = {"Baylands", "Dynamic terrain"};
+static const char* sharedWorldIds[] = {"baylands", "dynamic"};
+static const char* sharedModels[] = {"Cessna airplane", "R1 rover", "Own model..."};
+static const char* sharedModelIds[] = {"rc_cessna", "r1_rover", "custom"};
+static const char* modelAdapters[] = {"Aircraft (Cessna adapter)", "Rover (R1 adapter)"};
+static const char* simNames[] = {"Gazebo Jetty", "Gazebo Harmonic", "FlightGear", "Isaac Sim (PhysX)", "Lightweight simulation", "Unreal Engine"};
+struct SharedSelection {
+    int world = 0, model = 0, baseModel = 0;
+    std::array<char, 4096> modelPath{};
+    int adapter() const { return model == 2 ? baseModel : model; }
 };
 
 static const char* qgcVersions[] = {"5.0.8", "5.0.7", "5.0.6"};
@@ -76,12 +73,9 @@ struct Selection {
     bool airspeed = false, lidar = false, camera = false, license = false;
     int qgcVersion = 0, px4Version = 0;
     RouterPorts routerPorts = defaultRouterPorts;
-    int backend = 0, world = 0, model = 1, fgModel = 0, seed = 42, jobs = 4;
+    int backend = 0, seed = 42, jobs = 4;
     std::array<char, 4096> prefix{}, archive{};
-    std::array<SimulationSelection, 6> simulations{};
-    Selection() {
-        for (int i = 0; i < 2; ++i) simulations[i].model = simulations[i].baseModel = 1;
-    }
+    SharedSelection shared;
     bool selected(int i) const {
         return i == 0 ? jetty : i == 1 ? harmonic : i == 2 ? flightgear :
                i == 3 ? isaacPhysx : i == 4 ? sih : unreal;
@@ -93,7 +87,6 @@ struct Selection {
         if (!px4().nativeBridges) { flightgear = false; unreal = false; isaacPhysx = false; }
         if (px4().legacyModels) {
             airspeed = false; lidar = false;
-            for (int i = 0; i < 2; ++i) if (simulations[i].world == 2) simulations[i].world = 0;
         }
     }
     bool gazebo() const { return jetty || harmonic; }
@@ -103,15 +96,15 @@ struct Selection {
         int result = 10;
         for (int i = 0; i < 6; ++i) if (selected(i)) {
             result += simulatorRequirements[i].diskGiB;
-            if (i < 2 && simulations[i].world == 7) result += 10;
         }
+        if (any() && shared.world == 1) result += 10;
         if (qgc) result += 2;
         if (router) result += 1;
         return result;
     }
     std::string json() const {
         std::ostringstream out;
-        out << "{\n\"schema\":4,\"autopilot\":\"PX4\",\"mode\":\"SITL\",\n";
+        out << "{\n\"schema\":5,\"autopilot\":\"PX4\",\"mode\":\"SITL\",\n";
         auto flag = [&](const char* key, bool value) { out << jsonString(key) << ':' << (value ? "true" : "false") << ",\n"; };
         auto str = [&](const char* key, const std::string& value) { out << jsonString(key) << ':' << jsonString(value) << ",\n"; };
         str("px4_version", px4().version);
@@ -120,25 +113,17 @@ struct Selection {
         for (size_t i = 0; i < routerPorts.size(); ++i) { if (i) out << ','; out << jsonString(routerKeys[i]) << ':' << routerPorts[i]; }
         out << "},\n";
         str("prefix", prefix.data()); str("unreal_archive", archive.data());
-        str("backend", backend == 0 ? "jetty" : "harmonic"); str("world", worldIds[world]);
-        str("gazebo_model", modelIds[model]); str("flightgear_model", fgIds[fgModel]);
+        str("backend", backend == 0 ? "jetty" : "harmonic"); str("world", sharedWorldIds[shared.world]);
+        str("gazebo_model", sharedModelIds[shared.adapter()]); str("flightgear_model", sharedModelIds[shared.adapter()]);
+        out << "\"shared_selection\":{";
+        str("world", sharedWorldIds[shared.world]); str("model", sharedModelIds[shared.model]);
+        str("model_path", shared.model == 2 ? shared.modelPath.data() : "");
+        out << "\"model_base\":" << jsonString(sharedModelIds[shared.adapter()]) << "},\n";
         flag("jetty", jetty); flag("harmonic", harmonic); flag("sih", sih); flag("flightgear", flightgear);
         flag("unreal", unreal); flag("isaac_sih", false); flag("isaac_physx", isaacPhysx);
         flag("qgc", qgc); flag("router", router); flag("airspeed", airspeed); flag("lidar", lidar);
         flag("camera", camera); flag("license", license);
-        out << "\"simulations\": {";
-        for (int i = 0; i < 6; ++i) {
-            const auto& sim = simulations[i];
-            if (i) out << ',';
-            out << jsonString(simIds[i]) << ":{";
-            str("world", i < 2 ? worldIds[sim.world] : sim.world ? "custom" : "default");
-            str("model", i < 2 ? modelIds[sim.model] : i == 2 ? fgIds[sim.model] : sim.model ? "custom" : "default");
-            str("world_path", sim.worldPath.data()); str("model_path", sim.modelPath.data());
-            str("model_base", i < 2 ? modelIds[sim.baseModel] : i == 2 ? fgIds[sim.baseModel] : "default");
-            flag("dynamic_terrain", i < 2 && sim.world == 7);
-            out << "\"seed\":" << sim.seed << '}';
-        }
-        out << "},\n\"seed\":" << seed << ",\"jobs\":" << jobs << "\n}\n";
+        out << "\"seed\":" << seed << ",\"jobs\":" << jobs << "\n}\n";
         return out.str();
     }
 };
@@ -155,7 +140,7 @@ struct App {
     bool authVisible = false;
     Job job = Job::None;
     int step = 0, furthest = 0, pickerTarget = 0, selectionStep = 0;
-    bool simulatorTabsInitialized = false, toolsEdited = false;
+    bool simulatorTabsInitialized = false, toolsEdited = false, sharedEdited = false;
     RouterPorts routerDraft = defaultRouterPorts;
     bool previewOk = false, removalReady = false, removeConfirmed = false;
     bool autoScroll = true, closeRequested = false, wrapLogs = true;
@@ -220,23 +205,34 @@ struct App {
                         if (!prefixEdited) std::snprintf(s.prefix.data(), s.prefix.size(), "%s", path.c_str());
                     }
                     s.license = accepted == "accepted";
-                    if (!toolsEdited) {
-                        std::string version, port;
-                        if (std::getline(stream, version)) {
+                    std::string version, port;
+                    if (std::getline(stream, version)) {
+                        if (!toolsEdited) {
                             for (int i = 0; i < IM_ARRAYSIZE(qgcVersions); ++i) if (version == qgcVersions[i]) s.qgcVersion = i;
                         }
-                        RouterPorts parsed = defaultRouterPorts; bool complete = true;
-                        for (auto& value : parsed) {
-                            if (!std::getline(stream, port)) { complete = false; break; }
-                            try { size_t used; value = std::stoi(port, &used); if (used != port.size()) complete = false; }
-                            catch (...) { complete = false; }
-                        }
-                        if (complete && routerError(parsed).empty()) s.routerPorts = parsed;
-                        std::string px4Version, existing;
-                        if (std::getline(stream, px4Version)) {
+                    }
+                    RouterPorts parsed = defaultRouterPorts; bool complete = true;
+                    for (auto& value : parsed) {
+                        if (!std::getline(stream, port)) { complete = false; break; }
+                        try { size_t used; value = std::stoi(port, &used); if (used != port.size()) complete = false; }
+                        catch (...) { complete = false; }
+                    }
+                    if (!toolsEdited && complete && routerError(parsed).empty()) s.routerPorts = parsed;
+                    std::string px4Version, existing;
+                    if (std::getline(stream, px4Version)) {
+                        if (!toolsEdited) {
                             for (int i = 0; i < IM_ARRAYSIZE(px4Releases); ++i) if (px4Version == px4Releases[i].version) s.selectPx4(i);
-                            if (std::getline(stream, existing) && existing == "installed") installedPx4 = px4Version;
                         }
+                        if (std::getline(stream, existing) && existing == "installed") installedPx4 = px4Version;
+                    }
+                    std::string world, model, modelPath, modelBase;
+                    if (!sharedEdited && std::getline(stream, world) && std::getline(stream, model) &&
+                        std::getline(stream, modelPath) && std::getline(stream, modelBase)) {
+                        for (int i = 0; i < IM_ARRAYSIZE(sharedWorldIds); ++i) if (world == sharedWorldIds[i]) s.shared.world = i;
+                        for (int i = 0; i < IM_ARRAYSIZE(sharedModelIds); ++i) if (model == sharedModelIds[i]) s.shared.model = i;
+                        for (int i = 0; i < 2; ++i) if (modelBase == sharedModelIds[i]) s.shared.baseModel = i;
+                        if (modelPath.size() < s.shared.modelPath.size())
+                            std::snprintf(s.shared.modelPath.data(), s.shared.modelPath.size(), "%s", modelPath.c_str());
                     }
                 } else error = worker.output + worker.diagnostics;
                 worker.output.clear(); job = Job::None;
@@ -254,6 +250,7 @@ struct App {
                     if (value.size() >= target.size()) throw std::runtime_error("The selected path is too long.");
                     std::snprintf(target.data(), target.size(), "%s", value.c_str());
                     if (pickerTarget == 2) prefixEdited = true;
+                    if (pickerTarget == 3) sharedEdited = true;
                     error.clear(); previewOk = false;
                     previewPending = step == 6;
                 } catch (const std::exception& e) { error = e.what(); }
@@ -275,22 +272,18 @@ struct App {
     std::array<char, 4096>& pathTarget(int target) {
         if (target == 1) return s.archive;
         if (target == 2) return s.prefix;
-        auto& sim = s.simulations.at((target - 10) / 2);
-        return (target - 10) % 2 ? sim.modelPath : sim.worldPath;
+        if (target == 3) return s.shared.modelPath;
+        throw std::runtime_error("Unknown file chooser target.");
     }
     void choosePath(int target) {
         if (picker.running()) return;
-        const bool world = target >= 10 && (target - 10) % 2 == 0;
-        const int sim = target >= 10 ? (target - 10) / 2 : -1;
-        const bool directory = target == 2 || (sim == 2 && world);
+        const bool directory = target == 2;
         std::string title = target == 1 ? "Select the official UE 5.6.1 Linux ZIP" : target == 2 ?
-            "Choose the installation folder" : std::string(simNames[sim]) + (world ? " world" : " model");
+            "Choose the installation folder" : "Select your shared model.sdf";
         std::vector<std::string> args = {"zenity", "--file-selection", "--title=" + title};
         if (directory) args.push_back("--directory");
         else {
-            const char* filter = target == 1 ? "ZIP | *.zip" : sim < 2 ? "Gazebo SDF | *.sdf" :
-                sim == 2 ? "FlightGear aircraft | *-set.xml" : sim == 5 ?
-                (world ? "Unreal map | *.umap" : "Unreal static mesh | *.uasset") : "USD | *.usd *.usda *.usdc";
+            const char* filter = target == 1 ? "ZIP | *.zip" : "Shared SDF model | model.sdf";
             args.push_back(std::string("--file-filter=") + filter);
         }
         const char* current = pathTarget(target).data();
@@ -343,7 +336,9 @@ bool primary(const char* label, ImVec2 size = {180, 42}) {
     bool result = ui::Button(label, size); ui::PopStyleColor(2); return result;
 }
 void line(const char* key, const std::string& value) {
-    ui::TextColored(muted, "%s", key); ui::SameLine(172); ui::TextWrapped("%s", value.c_str());
+    ui::TextColored(muted, "%s", key);
+    ui::SameLine(std::max(172.f, ui::GetItemRectMax().x - ui::GetWindowPos().x + 12.f));
+    ui::TextWrapped("%s", value.c_str());
 }
 void logs(App& a, float height) {
     bool toEnd = ui::Checkbox("Follow output", &a.autoScroll) && a.autoScroll;
@@ -413,62 +408,9 @@ void routerAdvanced(App& a) {
         ui::EndPopup();
     }
 }
-void simulators(App& a) {
+void sharedTools(App& a) {
     auto& s = a.s;
-    heading("Choose your simulators", "Select simulators in any tab. Selections stay active when you switch tabs.");
-    hint("Space figures include builds and caches. Reserve 10 GiB once for shared PX4/tools; custom worlds and models need extra space.");
-    if (ui::BeginTabBar("Simulator types")) {
-        const char* tabs[] = {"Minimal", "Gazebo", "FlightGear", "Unreal Engine", "Isaac"};
-        for (int tab = 0; tab < 5; ++tab) {
-            auto flags = !a.simulatorTabsInitialized && tab == 1 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-            if (!ui::BeginTabItem(tabs[tab], nullptr, flags)) continue;
-            ui::Dummy({0, 10});
-            if (tab == 0) {
-                check("SIH", s.sih, "Built-in PX4 airplane physics. Runs without Isaac or a graphical simulator."); requirements(4);
-            } else if (tab == 1) {
-                ui::BeginDisabled(!s.px4().jetty); ui::Checkbox("Gazebo Jetty", &s.jetty); ui::EndDisabled();
-                hint("PX4 support: 1.17.0 native; 1.16.0–1.16.2 with a compatibility adapter. Unavailable for 1.15.x.");
-                if (s.px4().jetty == 1) {
-                    ui::PushStyleColor(ImGuiCol_Text, amber);
-                    ui::TextWrapped("(PX4 source will be modified to support this simulator)"); ui::PopStyleColor();
-                } else if (!s.px4().jetty) hint("Choose Harmonic below, or select PX4 1.16.x / 1.17.0 on the Autopilot page.");
-                requirements(0);
-                ui::Checkbox("Gazebo Harmonic", &s.harmonic);
-                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0 (native)."); requirements(1);
-                if (s.jetty && s.harmonic) {
-                    ui::SetNextItemWidth(200); ui::Combo("Active PX4 backend", &s.backend, "Jetty\0Harmonic\0");
-                    hint("Both can be installed. One Gazebo ABI is active in PX4; switching later requires a rebuild.");
-                } else if (s.gazebo()) s.backend = s.jetty ? 0 : 1;
-            } else if (tab == 2) {
-                ui::BeginDisabled(!s.px4().nativeBridges); ui::Checkbox("FlightGear 2020.3.19", &s.flightgear); ui::EndDisabled();
-                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0.");
-                hint("Ubuntu 24.04 repository version; distribution packaging updates may change the revision."); requirements(2);
-            } else if (tab == 3) {
-                ui::BeginDisabled(!s.px4().nativeBridges); ui::Checkbox("Unreal Engine 5", &s.unreal); ui::EndDisabled();
-                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0."); requirements(5);
-                if (s.unreal) {
-                    if (ui::Button("UE 5.6.1  ↗  Epic download / sign in")) openUrl("https://www.unrealengine.com/en-US/linux");
-                    hint("Download the official Linux ZIP from Epic, then select it here.");
-                    ui::SetNextItemWidth(std::max(180.f, ui::GetContentRegionAvail().x - 108));
-                    ui::InputTextWithHint("##archive", "/path/to/Linux_Unreal_Engine_5.6.1.zip", s.archive.data(), s.archive.size());
-                    ui::SameLine(); if (ui::Button("Browse...##ue")) a.choosePath(1);
-                }
-            } else {
-                ui::BeginDisabled(!s.px4().nativeBridges); check("PhysX", s.isaacPhysx, "Isaac runs physics with the native C++ PX4 bridge."); ui::EndDisabled();
-                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0."); requirements(3);
-                if (s.isaac()) {
-                    ui::Checkbox("I accept the NVIDIA Omniverse license", &s.license);
-                    ui::SameLine(); if (ui::SmallButton("Read ↗")) openUrl("https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html");
-                }
-            }
-            ui::EndTabItem();
-        }
-        ui::EndTabBar(); a.simulatorTabsInitialized = true;
-    }
-    std::string selected;
-    for (int i = 0; i < 6; ++i) if (s.selected(i)) { if (!selected.empty()) selected += ", "; selected += simNames[i]; }
-    hint(("Selected: " + (selected.empty() ? std::string("none") : selected)).c_str());
-    section("SHARED TOOLS");
+    hint("These tools are shared by all selected simulators.");
     if (ui::Checkbox("QGroundControl", &s.qgc)) a.toolsEdited = true;
     if (s.qgc) {
         ui::SetNextItemWidth(235);
@@ -482,87 +424,109 @@ void simulators(App& a) {
     hint(("Automatic QGC link: UDP " + std::to_string(s.routerPorts[1]) + ". The router must be running to relay telemetry.").c_str());
     routerAdvanced(a);
 }
-
-void assetPath(App& a, int i, bool world) {
-    int target = 10 + i * 2 + (world ? 0 : 1);
-    auto& path = a.pathTarget(target);
-    ui::SetNextItemWidth(std::max(180.f, ui::GetContentRegionAvail().x - 108));
-    ui::InputText("##asset-path", path.data(), path.size());
-    ui::SameLine(); if (ui::Button("Browse...")) a.choosePath(target);
-}
-void worldsPage(App& a) {
-    heading("Choose worlds", "Each simulator keeps its own world. Select a supplied world or browse to a custom one.");
-    for (int i = 0; i < 6; ++i) if (a.s.selected(i)) {
-        ui::PushID(i); section(simNames[i]); auto& sim = a.s.simulations[i];
-        if (i == 4) {
-            hint("PX4 flat ground. Standalone SIH has no visual world or external scene file.");
-            sim.world = 0; ui::PopID(); continue;
-        }
-        ui::SetNextItemWidth(-1);
-        if (i < 2) {
-            if (ui::BeginCombo("##world", worlds[sim.world])) {
-                for (int j = 0; j < IM_ARRAYSIZE(worlds); ++j) {
-                    const bool unavailable = a.s.px4().legacyModels && j == 2;
-                    ui::BeginDisabled(unavailable);
-                    if (ui::Selectable(worlds[j], sim.world == j)) sim.world = j;
-                    ui::EndDisabled();
+void simulators(App& a) {
+    auto& s = a.s;
+    heading("Choose your simulators", "Selections stay active across tabs. Configure QGroundControl and MAVLink Router in Shared tools.");
+    hint("Space figures include builds and caches. Reserve 10 GiB once for shared PX4/tools; custom models need extra space.");
+    if (ui::BeginTabBar("Simulator types")) {
+        const char* tabs[] = {"Recommended", "Lightweight", "FlightGear", "Isaac Sim", "Shared tools"};
+        for (int tab = 0; tab < IM_ARRAYSIZE(tabs); ++tab) {
+            auto flags = !a.simulatorTabsInitialized && tab == 0 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if (!ui::BeginTabItem(tabs[tab], nullptr, flags)) continue;
+            ui::Dummy({0, 10});
+            if (tab == 0) {
+                section("GAZEBO");
+                ui::BeginDisabled(!s.px4().jetty); ui::Checkbox("Gazebo Jetty", &s.jetty); ui::EndDisabled();
+                hint("PX4 support: 1.17.0 native; 1.16.0–1.16.2 with a compatibility adapter. Unavailable for 1.15.x.");
+                if (s.jetty && s.px4().jetty == 1) {
+                    ui::PushStyleColor(ImGuiCol_Text, amber);
+                    ui::TextWrapped("(PX4 source will be modified to support this simulator)"); ui::PopStyleColor();
+                } else if (!s.px4().jetty) hint("Choose Harmonic below, or select PX4 1.16.x / 1.17.0 on the Autopilot page.");
+                ui::Checkbox("Gazebo Harmonic", &s.harmonic);
+                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0 (native).");
+                if (s.jetty && s.harmonic) {
+                    ui::SetNextItemWidth(200); ui::Combo("Active PX4 backend", &s.backend, "Jetty\0Harmonic\0");
+                    hint("Both can be installed. One Gazebo ABI is active in PX4; switching later requires a rebuild.");
+                } else if (s.gazebo()) s.backend = s.jetty ? 0 : 1;
+                requirements(s.backend);
+                section("UNREAL ENGINE");
+                ui::BeginDisabled(!s.px4().nativeBridges); ui::Checkbox("Unreal Engine 5", &s.unreal); ui::EndDisabled();
+                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0."); requirements(5);
+                if (s.unreal) {
+                    if (ui::Button("UE 5.6.1  ↗  Epic download / sign in")) openUrl("https://www.unrealengine.com/en-US/linux");
+                    hint("Download the official Linux ZIP from Epic, then select it here.");
+                    ui::SetNextItemWidth(std::max(180.f, ui::GetContentRegionAvail().x - 108));
+                    ui::InputTextWithHint("##archive", "/path/to/Linux_Unreal_Engine_5.6.1.zip", s.archive.data(), s.archive.size());
+                    ui::SameLine(); if (ui::Button("Browse...##ue")) a.choosePath(1);
                 }
-                ui::EndCombo();
-            }
-            if (a.s.px4().legacyModels) hint("The PX4 1.15.x model set does not include Forest; custom SDF worlds are still available.");
+            } else if (tab == 1) {
+                check("Lightweight simulation", s.sih, "Runs PX4 built-in airplane physics or the native R1 rover ground model without a 3D simulator. QGroundControl is optional."); requirements(4);
+            } else if (tab == 2) {
+                ui::BeginDisabled(!s.px4().nativeBridges); ui::Checkbox("FlightGear 2020.3.19", &s.flightgear); ui::EndDisabled();
+                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0.");
+                hint("Ubuntu 24.04 repository version; distribution packaging updates may change the revision."); requirements(2);
+            } else if (tab == 3) {
+                ui::BeginDisabled(!s.px4().nativeBridges); check("Isaac Sim (PhysX)", s.isaacPhysx, "NVIDIA Isaac Sim supplies physics and 3D visualization. Requires an NVIDIA RTX GPU."); ui::EndDisabled();
+                hint("PX4 support: 1.15.0–1.15.4, 1.16.0–1.16.2 and 1.17.0."); requirements(3);
+                if (s.isaac()) {
+                    ui::Checkbox("I accept the NVIDIA Omniverse license", &s.license);
+                    ui::SameLine(); if (ui::SmallButton("Read ↗")) openUrl("https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html");
+                }
+            } else sharedTools(a);
+            ui::EndTabItem();
         }
-        else {
-            const char* choices[] = {defaultWorlds[i], "Custom world..."};
-            ui::Combo("##world", &sim.world, choices, 2);
-        }
-        if (sim.world == (i < 2 ? 6 : 1)) {
-            assetPath(a, i, true);
-            hint(i < 2 ? "Select an SDF world. Its original asset folder stays in the resource path." :
-                 i == 2 ? "Select a FlightGear scenery folder containing Terrain/ and/or Objects/." :
-                 i == 5 ? "Select a UE 5.6 .umap under a Content folder. Its Content tree is copied to the project to preserve asset references." :
-                 "Select a USD world using metres and Z up. Keep its referenced assets beside it.");
-        }
-        if (i < 2) {
-            if (sim.world == 4) {
-                ui::SetNextItemWidth(150); ui::InputInt("Random seed", &sim.seed);
-                sim.seed = std::clamp(sim.seed, 0, 1000000);
-                hint("Generates a reproducible training field with a clear takeoff corridor.");
-            }
-            if (sim.world == 7) hint("Streams geographic terrain around any selected model. Allow another 10 GiB for builds and initial terrain cache (estimate); downloaded terrain can grow.");
-        }
-        ui::PopID();
+        ui::EndTabBar(); a.simulatorTabsInitialized = true;
     }
+    std::string selected;
+    for (int i = 0; i < 6; ++i) if (s.selected(i)) { if (!selected.empty()) selected += ", "; selected += simNames[i]; }
+    hint(("Selected: " + (selected.empty() ? std::string("none") : selected)).c_str());
+}
+
+void worldsPage(App& a) {
+    heading("Choose a world", "One shared world is used by every selected simulator.");
+    section("SHARED WORLD");
+    ui::SetNextItemWidth(-1);
+    if (ui::Combo("##shared-world", &a.s.shared.world, sharedWorlds, IM_ARRAYSIZE(sharedWorlds))) {
+        a.sharedEdited = true; a.previewOk = false;
+    }
+    if (a.s.shared.world == 0)
+        hint("Baylands is installed in shared/worlds/baylands and converted for each selected simulator.");
+    else {
+        hint("Streams geographic terrain using shared/worlds/dynamic_terrain/terrain.json. All simulators reuse the shared terrain cache.");
+        hint("Allow another 10 GiB for builds and the initial terrain cache (estimate); downloaded terrain can grow.");
+    }
+    if (a.s.sih)
+        hint("Lightweight simulation: the rover collides with the selected terrain. PX4 built-in airplane physics retains its flat ground; the selected world is shown in the optional viewer.");
 }
 void modelsPage(App& a) {
-    heading("Choose models", "Choose a model separately for each simulator. Custom assets must match that simulator and its flight physics.");
-    for (int i = 0; i < 6; ++i) if (a.s.selected(i)) {
-        ui::PushID(i); section(simNames[i]); auto& sim = a.s.simulations[i];
-        if (i == 4) {
-            hint("Built-in PX4 SIH airplane. Its dynamics are configured in PX4; there is no external visual model.");
-            sim.model = 0; ui::PopID(); continue;
-        }
-        ui::SetNextItemWidth(-1);
-        if (i < 2) ui::Combo("##model", &sim.model, models, IM_ARRAYSIZE(models));
-        else if (i == 2) ui::Combo("##model", &sim.model, fgModels, IM_ARRAYSIZE(fgModels));
-        else { const char* choices[] = {"Supplied airplane", "Custom model..."}; ui::Combo("##model", &sim.model, choices, 2); }
-        if (sim.model == (i < 2 ? 4 : i == 2 ? 5 : 1)) {
-            assetPath(a, i, false);
-            if (i < 3) {
-                ui::SetNextItemWidth(-1);
-                ui::TextUnformatted(i < 2 ? "PX4 airframe" : "Control mapping / PX4 airframe");
-                ui::Combo("##base-model", &sim.baseModel,
-                          i < 2 ? models : fgModels, i < 2 ? 4 : 5);
-            }
-            hint(i < 2 ? "Select model.sdf. Match the PX4 airframe and its actuators; optional sensors require a base_link." :
-                 i == 2 ? "Select the aircraft's -set.xml. It must support the selected control mapping." :
-                 i == 3 ? "Select a fixed-wing USD rigid body with collision geometry, metres and Z up. The native aircraft.json supplies flight coefficients." :
-                 i == 4 ? "Select a USD visual model with a default prim, Z up and X forward. PX4 SIH still supplies flight physics." :
-                 "Select a UE 5.6 static-mesh .uasset under Content/. This replaces the visual mesh; the fixed-wing physics remain the same.");
-        }
-        ui::PopID();
+    heading("Choose a model", "One shared model is used by every selected simulator.");
+    auto& shared = a.s.shared;
+    section("SHARED MODEL");
+    ui::SetNextItemWidth(-1);
+    if (ui::Combo("##shared-model", &shared.model, sharedModels, IM_ARRAYSIZE(sharedModels))) {
+        a.sharedEdited = true; a.previewOk = false;
     }
-    section("YOUR SIMULATION FOLDER");
-    hint("simulation/<simulator>/models  /worlds  /bridge  /plugins");
+    if (shared.model == 2) {
+        ui::TextUnformatted("Your model.sdf");
+        ui::SetNextItemWidth(std::max(180.f, ui::GetContentRegionAvail().x - 108));
+        if (ui::InputTextWithHint("##shared-model-path", "/path/to/your/model.sdf", shared.modelPath.data(), shared.modelPath.size())) {
+            a.sharedEdited = true; a.previewOk = false;
+        }
+        ui::SameLine(); if (ui::Button("Browse...##shared-model")) a.choosePath(3);
+        ui::Dummy({0, 8}); ui::TextUnformatted("Physics and PX4 control mapping");
+        ui::SetNextItemWidth(-1);
+        if (ui::Combo("##shared-model-adapter", &shared.baseModel, modelAdapters, IM_ARRAYSIZE(modelAdapters))) {
+            a.sharedEdited = true; a.previewOk = false;
+        }
+        hint("The model and its referenced assets are copied into shared/models and converted for every selected simulator. Keep meshes and textures with model.sdf.");
+        hint("Choose the matching aircraft or rover adapter. Native simulators use that adapter's physics and controls; custom SDF dynamics are not translated automatically.");
+    }
+    if (a.s.flightgear && shared.adapter() == 0)
+        hint("FlightGear uses the shared airplane visual with Rascal YASim flight dynamics; this is an approximation.");
+    if (a.s.sih)
+        hint("Lightweight simulation uses PX4's built-in airplane physics or native differential-drive rover physics.");
+    section("YOUR SHARED LIBRARY");
+    hint("Edit common sources in shared/models and shared/worlds. The conversion layer is in shared/transform.");
 }
 void sensorsPage(App& a) {
     heading("Configure Gazebo sensors", "Optional sensors are added to a generated model. The original PX4 models remain available.");
@@ -597,8 +561,8 @@ void reviewPage(App& a) {
     if (s.jetty && s.px4().jetty == 1) line("Jetty compatibility", "PX4 source will be modified to support this simulator.");
     std::string chosen;
     auto add = [&](bool yes, const char* text) { if (yes) { if (!chosen.empty()) chosen += ", "; chosen += text; } };
-    add(s.jetty,"Jetty"); add(s.harmonic,"Harmonic"); add(s.sih,"PX4 SIH"); add(s.flightgear,"FlightGear");
-    add(s.unreal,"UE 5.6.1"); add(s.isaacPhysx,"Isaac PhysX");
+    add(s.jetty,"Jetty"); add(s.harmonic,"Harmonic"); add(s.sih,"Lightweight simulation"); add(s.flightgear,"FlightGear");
+    add(s.unreal,"UE 5.6.1"); add(s.isaacPhysx,"Isaac Sim (PhysX)");
     line("Simulators", chosen);
     if (s.gazebo()) {
         line("Gazebo backend", s.backend == 0 ? "Jetty" : "Harmonic");
@@ -609,13 +573,11 @@ void reviewPage(App& a) {
         if (s.camera) sensors += ", RGB camera";
         line("Sensors", sensors);
     }
-    for (int i = 0; i < 6; ++i) if (s.selected(i)) {
-        const auto& sim = s.simulations[i];
-        const bool customWorld = sim.world == (i < 2 ? 6 : 1);
-        const bool customModel = sim.model == (i < 2 ? 4 : i == 2 ? 5 : 1);
-        std::string world = customWorld ? sim.worldPath.data() : i < 2 ? worlds[sim.world] : defaultWorlds[i];
-        std::string model = customModel ? sim.modelPath.data() : i < 2 ? models[sim.model] : i == 2 ? fgModels[sim.model] : "Supplied airplane";
-        line(simNames[i], world + " / " + model);
+    line("Shared world", sharedWorlds[s.shared.world]);
+    line("Shared model", sharedModels[s.shared.model]);
+    if (s.shared.model == 2) {
+        line("Model source", s.shared.modelPath.data());
+        line("Physics adapter", modelAdapters[s.shared.baseModel]);
     }
     line("Tools", (s.qgc ? std::string("QGroundControl ") + qgcVersions[s.qgcVersion] : std::string("None")) + (s.router ? " / MAVLink Router" : ""));
     if (s.router) {
@@ -748,7 +710,7 @@ void draw(App& a) {
     ui::SetNextWindowPos({0, 0}); ui::SetNextWindowSize({width, height});
     ui::Begin("Xovium", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     ui::BeginChild("sidebar", {214, 0}, ImGuiChildFlags_None);
-    ui::TextColored(accent, "X O V I U M"); hint("INSTALLER  /  0.2.0"); ui::Dummy({0, 30});
+    ui::TextColored(accent, "X O V I U M"); hint("INSTALLER  /  0.3.0"); ui::Dummy({0, 30});
     const char* steps[] = {"Execution mode", "Autopilot", "Simulators", "Worlds", "Models", "Sensors", "Review & install"};
     for (int i = 0; i < 7; ++i) {
         const bool skipped = !a.s.gazebo() && i == 5;
@@ -814,6 +776,7 @@ void draw(App& a) {
     if (a.step < 6) {
         bool enabled = !busy && (a.step != 0 || a.s.sitl) && (a.step != 1 || a.s.autopilot);
         if (a.step == 2) enabled = enabled && a.s.any() && (!a.s.isaac() || a.s.license) && (!a.s.unreal || a.s.archive[0]);
+        if (a.step == 4) enabled = enabled && (a.s.shared.model != 2 || a.s.shared.modelPath[0]);
         ui::BeginDisabled(!enabled); if (primary(a.step == 5 ? "Review selection →" : "Continue →", {205, 42})) a.navigate(a.step + 1); ui::EndDisabled();
     } else if (a.step == 6) {
         ui::BeginDisabled(busy || !a.previewOk || a.reviewed != a.s.json());
@@ -856,7 +819,7 @@ int main(int argc, char** argv) {
     setenv("SUDO_ASKPASS", (app.kit / "app/askpass.sh").c_str(), 1);
     SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT | FLAG_WINDOW_ALWAYS_RUN);
-    InitWindow(1160, 850, "Xovium Installer 0.2.0");
+    InitWindow(1160, 850, "Xovium Installer 0.3.0");
     if (!IsWindowReady()) return 1;
     try {
         app.auth.start();

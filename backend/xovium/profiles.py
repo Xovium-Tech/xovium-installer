@@ -1,7 +1,7 @@
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
-import random
 import tempfile
 import xml.etree.ElementTree as ET
 
@@ -9,7 +9,7 @@ from xovium.core import Error
 from xovium import simulation_profiles as sp
 
 MODELS = {'x500': 4001, 'rc_cessna': 4003, 'standard_vtol': 4004, 'r1_rover': 4009}
-FG_MODELS = ('rascal-electric', 'rascal', 'tf-g1', 'tf-g2', 'tf-r1')
+FG_MODELS = sp.FLIGHTGEAR_MODELS
 WORLDS = ('default', 'baylands', 'forest', 'windy', 'generated', 'dynamic')
 
 
@@ -32,6 +32,11 @@ def merge_selection(previous, request):
     result['simulations'] = {name: sp.get(request if sp.selected(request, name) else previous, name) for name in sp.SIMULATORS}
     for key in ('jetty', 'harmonic'):
         result[key] = request.get(key, False) or previous.get(key, False)
+    if 'shared_selection' in request:
+        shared = deepcopy(request['shared_selection'])
+        result.update(shared_selection=shared, world=shared['world'],
+                      gazebo_model=shared['model_base'], flightgear_model=shared['model_base'])
+        result['simulations'] = {name: sp.get(result, name) for name in sp.SIMULATORS}
     return result
 
 
@@ -76,31 +81,20 @@ def model_profile(models, name, data):
         cameras = plugin.find('camera_names')
         if cameras is not None:
             plugin.remove(cameras)
+        if data.get('terrain_settings'):
+            settings = data['terrain_settings']
+            radius = (settings['radius'] + .5) * 40075016.686 * math.cos(math.radians(settings['origin']['latitude'])) / (2 ** settings['zoom'])
+            values = {'imagery_provider': 'custom', 'imagery_url': settings['imagery_url'],
+                      'imagery_extension': settings.get('imagery_extension', 'jpg'), 'elevation_url': settings['elevation_url'],
+                      'cache_dir': settings['cache_path'], 'static_zoom': settings['zoom'], 'dynamic_zoom': 'false',
+                      'radius_tiles': settings['radius'], 'visual_geometry_zoom': settings['zoom'],
+                      'visual_elevation_zoom': min(settings['zoom'], 15), 'visual_detail_zoom': settings['zoom'],
+                      'visual_radius_m': radius, 'visual_detail_radius_m': radius, 'visual_detail_mode': 'all'}
+            for key, value in values.items():
+                element = plugin.find(key)
+                if element is None: element = ET.SubElement(plugin, key)
+                element.text = str(value)
         model.append(plugin)
-    return xml_text(sdf)
-
-
-def generated_world(default_world, seed):
-    sdf = ET.parse(default_world).getroot()
-    world = sdf.find('world')
-    world.set('name', 'xovium_training')
-    rng = random.Random(seed)
-    for i in range(36):
-        x = rng.uniform(-180, 180)
-        y = rng.choice([-1, 1]) * rng.uniform(28, 180)
-        height = rng.uniform(2, 18)
-        model = ET.SubElement(world, 'model', name=f'xovium_obstacle_{i:02d}')
-        ET.SubElement(model, 'static').text = 'true'
-        ET.SubElement(model, 'pose').text = f'{x:.3f} {y:.3f} {height / 2:.3f} 0 0 0'
-        link = ET.SubElement(model, 'link', name='body')
-        for kind in ('collision', 'visual'):
-            child = ET.SubElement(link, kind, name=kind)
-            geometry = ET.SubElement(child, 'geometry')
-            ET.SubElement(ET.SubElement(geometry, 'box'), 'size').text = f'6 6 {height:.3f}'
-            if kind == 'visual':
-                material = ET.SubElement(child, 'material')
-                ET.SubElement(material, 'ambient').text = '0.23 0.38 0.43 1'
-                ET.SubElement(material, 'diffuse').text = '0.23 0.38 0.43 1'
     return xml_text(sdf)
 
 
@@ -118,7 +112,7 @@ def gazebo_settings(ctx, data):
     item = sp.get(data, 'gazebo-' + backend)
     model = item['model']
     airframe = item['model_base'] if model == 'custom' else model
-    world = {'airfield': 'mcmillan_airfield_gz', 'dynamic': 'mcmillan_airfield_gz', 'generated': 'xovium_training', 'custom': 'xovium_custom'}.get(item['world'], item['world'])
+    world = {'airfield': 'dynamic_terrain', 'dynamic': 'dynamic_terrain', 'custom': 'xovium_custom'}.get(item['world'], item['world'])
     if item['dynamic_terrain']:
         world = 'xovium_terrain'
     result = {'PX4_SIM_MODEL': 'gz_xovium_' + model, 'PX4_SYS_AUTOSTART': MODELS[airframe],
@@ -128,7 +122,7 @@ def gazebo_settings(ctx, data):
         base = ctx.prefix / ('simulation/gazebo-' + backend)
         paths = [str(base / 'models'), str(base / 'worlds')]
         for kind in ('world', 'model'):
-            if item[kind] == 'custom':
+            if item[kind] == 'custom' and 'shared_selection' not in data:
                 parent = Path(item[kind + '_path']).parent
                 paths += [str(parent), str(parent.parent), str(parent / 'models'), str(parent.parent / 'models')]
         result['GZ_SIM_RESOURCE_PATH'] = ':'.join(dict.fromkeys(paths))
@@ -159,8 +153,9 @@ def gazebo_profile(ctx, data, distro):
         return
     profile = dict(data, gazebo_model=item['model'])
     if item['model'] == 'custom':
-        profile['model_uri'] = item['model_path']
+        profile['model_uri'] = 'model://custom' if 'shared_selection' in data else item['model_path']
     if item['dynamic_terrain']:
+        profile['terrain_settings'] = sp.shared_terrain(ctx)
         profile['terrain_snippet'] = base / f'plugins/terrain/source/examples/{distro}/plugin_snippet.sdf'
         if not profile['terrain_snippet'].is_file():
             raise Error(f'Dynamic terrain was selected for {distro}, but its plugin was not installed.')
@@ -168,17 +163,8 @@ def gazebo_profile(ctx, data, distro):
     write_owned(ctx, f'{relative}/models/{name}/model.sdf', model_profile(base / 'models', name, profile))
     write_owned(ctx, f'{relative}/models/{name}/model.config',
                 f'<?xml version="1.0"?><model><name>{name}</name><version>1.0</version><sdf version="1.9">model.sdf</sdf><description>Xovium wizard profile</description></model>\n')
-    if item['world'] == 'generated':
-        write_owned(ctx, f'{relative}/worlds/xovium_training.sdf', generated_world(base / 'worlds/default.sdf', item['seed']))
-    elif item['world'] == 'custom':
+    if item['world'] == 'custom':
         write_owned(ctx, f'{relative}/worlds/xovium_custom.sdf', custom_world(Path(item['world_path'])))
-    elif item['world'] in ('airfield', 'dynamic'):
-        ctx.copy_asset('gazebo/models/uneven_ground', relative + '/models/uneven_ground')
-        root = ET.parse(ctx.assets / 'gazebo/worlds/mcmillan_airfield_gz.sdf').getroot()
-        if item['dynamic_terrain']:
-            for include in list(root.find('world').findall('include')):
-                if include.findtext('uri') == 'model://uneven_ground': root.find('world').remove(include)
-        write_owned(ctx, relative + '/worlds/mcmillan_airfield_gz.sdf', xml_text(root))
     root = ET.parse(base / 'bridge/server.config').getroot()
     plugins = root.find('plugins')
     if plugins is None:
@@ -191,10 +177,17 @@ def gazebo_profile(ctx, data, distro):
                       filename='libgz-dynamic-terrain-system.so', name='custom::DynamicTerrainSystem')
     write_owned(ctx, relative + '/bridge/wizard-server.config', xml_text(root))
     if item['dynamic_terrain']:
-        world_name = {'airfield': 'mcmillan_airfield_gz', 'dynamic': 'mcmillan_airfield_gz', 'generated': 'xovium_training', 'custom': 'xovium_custom'}.get(item['world'], item['world'])
+        world_name = {'airfield': 'dynamic_terrain', 'dynamic': 'dynamic_terrain', 'custom': 'xovium_custom'}.get(item['world'], item['world'])
         world_root = ET.parse(base / ('worlds/' + world_name + '.sdf')).getroot()
         world = world_root.find('world')
         world.set('name', 'xovium_terrain')
+        coordinates = world.find('spherical_coordinates')
+        if coordinates is None: coordinates = ET.SubElement(world, 'spherical_coordinates')
+        origin = profile['terrain_settings']['origin']
+        for key, value in {'surface_model': 'EARTH_WGS84', 'latitude_deg': origin['latitude'], 'longitude_deg': origin['longitude'], 'elevation': origin['altitude'], 'heading_deg': 0}.items():
+            element = coordinates.find(key)
+            if element is None: element = ET.SubElement(coordinates, key)
+            element.text = str(value)
         names = {p.get('name') for p in world.findall('plugin')}
         for plugin in plugins:
             if plugin.get('entity_type') == 'world' and plugin.get('name') not in names:
@@ -219,10 +212,20 @@ def apply(ctx, data):
     from installers import apps
     if data['isaac_physx'] and (ctx.prefix / 'simulation/isaac/bridge/run_isaac.sh').is_file():
         apps.isaac_launcher(ctx)
+        _, extra = sp.launch_options(ctx, 'isaac')
+        ctx.launcher('isaac-px4', ['bash', ctx.prefix / 'simulation/isaac/bridge/run_px4.sh'],
+                     {**apps.isaac_environment(ctx), **extra})
+    if (data['sih'] or data['isaac_sih']) and (ctx.prefix / 'simulation/sih/bridge/run_px4.sh').is_file():
+        from installers.px4 import environment
+        env = environment(ctx)
+        env.pop('DONT_RUN', None)
+        _, extra = sp.launch_options(ctx, 'sih')
+        ctx.launcher('sih-px4', ['bash', ctx.prefix / 'simulation/sih/bridge/run_px4.sh'], {**env, **extra})
     if data['isaac_sih'] and (ctx.prefix / 'simulation/sih/bridge/run_view.sh').is_file():
         apps.sih_view_launcher(ctx)
     if data['unreal']:
-        sp.import_unreal(ctx, sp.get(data, 'unreal-engine'))
+        if 'shared_selection' not in data:
+            sp.import_unreal(ctx, sp.get(data, 'unreal-engine'))
         apps.unreal_launchers(ctx)
     write_owned(ctx, 'config/installer-profile.json', json.dumps(data, indent=2, sort_keys=True) + '\n')
     defaults = '# Generated by the installation wizard; override in scripts/local.env.\n'

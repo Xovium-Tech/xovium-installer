@@ -11,4 +11,4 @@ fi
 exec "$ISAAC_PYTHON" -B -u "$SCRIPT_DIR/isaac_view.py" \
     --endpoint "udpin:127.0.0.1:$((19410 + PX4_INSTANCE))" \
     --system-id "$((PX4_INSTANCE + 1))" \
-    --origin "${SIM_LAT:-47.397742}" "${SIM_LON:-8.545594}" "${SIM_ALT:-489.4}" "$@"
+    --origin "${SIM_LAT:-${PX4_HOME_LAT:-47.397742}}" "${SIM_LON:-${PX4_HOME_LON:-8.545594}}" "${SIM_ALT:-${PX4_HOME_ALT:-489.4}}" "$@"

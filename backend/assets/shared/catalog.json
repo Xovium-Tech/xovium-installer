@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "models": {
+    "rc_cessna": {"name": "RC Cessna", "source": "models/cessna/source/model.sdf", "type": "fixed-wing", "frame": "FLU", "units": "metres"},
+    "r1_rover": {"name": "R1 rover", "source": "models/rover/source/model.sdf", "type": "differential-drive", "frame": "FLU", "units": "metres"}
+  },
+  "worlds": {
+    "baylands": {"name": "Baylands", "source": "worlds/baylands/source/world.sdf", "origin": {"latitude": 37.412173071650805, "longitude": -121.998878727967, "altitude": 38.0}},
+    "dynamic": {"name": "Dynamic terrain", "source": "worlds/dynamic_terrain/source/world.sdf", "configuration": "worlds/dynamic_terrain/terrain.json"}
+  }
+}

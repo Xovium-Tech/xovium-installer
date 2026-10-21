@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<PropertyList>
+  <sim>
+    <description>Xovium shared RC Cessna (Rascal YASim dynamics approximation)</description>
+    <flight-model>yasim</flight-model>
+    <aero>Cessna</aero>
+    <model><path>Aircraft/rc_cessna/model.ac</path></model>
+    <fuel-fraction>0.8</fuel-fraction>
+    <panel><visibility>false</visibility></panel>
+    <view n="0">
+      <name>Cessna chase</name><type>lookat</type>
+      <config><from-model type="bool">false</from-model><at-model type="bool">false</at-model>
+        <eye-lat-deg-path>/position/latitude-deg</eye-lat-deg-path>
+        <eye-lon-deg-path>/position/longitude-deg</eye-lon-deg-path>
+        <eye-alt-ft-path>/position/altitude-ft</eye-alt-ft-path>
+        <target-lat-deg-path>/position/latitude-deg</target-lat-deg-path>
+        <target-lon-deg-path>/position/longitude-deg</target-lon-deg-path>
+        <target-alt-ft-path>/position/altitude-ft</target-alt-ft-path>
+        <eye-heading-deg-path>/orientation/heading-deg</eye-heading-deg-path>
+        <x-offset-m>0</x-offset-m><y-offset-m>2</y-offset-m><z-offset-m>-6</z-offset-m>
+        <default-field-of-view-deg>55</default-field-of-view-deg>
+      </config>
+    </view>
+  </sim>
+  <controls><engines><engine n="0"><magnetos>3</magnetos></engine></engines></controls>
+</PropertyList>

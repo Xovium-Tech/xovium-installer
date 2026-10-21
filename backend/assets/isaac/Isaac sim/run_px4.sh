@@ -7,6 +7,12 @@ PX4_DIR="${PX4_DIR:-$SHARED_ROOT/.deps/PX4-Autopilot}"
 PX4_BUILD="${PX4_BUILD:-$PX4_DIR/build/px4_sitl_default}"
 PX4_INSTANCE="${PX4_INSTANCE:-0}"
 PX4_MAVLINK_ROUTER="${PX4_MAVLINK_ROUTER:-0}"
+XOVIUM_VEHICLE="${XOVIUM_VEHICLE:-rc_cessna}"
+case "$XOVIUM_VEHICLE" in
+    rc_cessna) airframe=1030_gazebo-classic_plane; autostart=1030; model=gazebo-classic_plane; override=px4_airframe.sh ;;
+    r1_rover) airframe=4009_gz_r1_rover; autostart=4009; model=gz_r1_rover; override=px4_rover_airframe.sh ;;
+    *) printf 'Unsupported vehicle: %s\n' "$XOVIUM_VEHICLE" >&2; exit 1 ;;
+esac
 if [[ ! "$PX4_INSTANCE" =~ ^(0|[1-9][0-9]{0,2})$ ]] || (( PX4_INSTANCE > 254 )); then
     printf '%s\n' 'PX4_INSTANCE must be an integer from 0 to 254.' >&2
     exit 1
@@ -15,7 +21,7 @@ if [[ "$PX4_MAVLINK_ROUTER" != 0 && "$PX4_MAVLINK_ROUTER" != 1 ]]; then
     printf '%s\n' 'PX4_MAVLINK_ROUTER must be 0 or 1.' >&2
     exit 1
 fi
-if [[ ! -x "$PX4_BUILD/bin/px4" || ! -f "$PX4_BUILD/etc/init.d-posix/airframes/1030_gazebo-classic_plane" ]]; then
+if [[ ! -x "$PX4_BUILD/bin/px4" || ! -f "$PX4_BUILD/etc/init.d-posix/airframes/$airframe" ]]; then
     printf '%s\n' 'PX4 v1.16 SITL build is missing. Run ./install.sh --px4-only first.' >&2
     exit 1
 fi
@@ -24,7 +30,7 @@ PX4_RUNTIME="${PX4_RUNTIME:-$SHARED_ROOT/.runtime/isaac-px4-$PX4_INSTANCE}"
 mkdir -p -- "$PX4_RUNTIME"
 PX4_RUNTIME="$(realpath -e -- "$PX4_RUNTIME")"
 export PX4_RUNTIME_RCS="$PX4_RUNTIME/rcS-isaac"
-export PX4_ISAAC_AIRFRAME="$SCRIPT_DIR/px4_airframe.sh"
+export PX4_ISAAC_AIRFRAME="$SCRIPT_DIR/$override"
 export PX4_MAVLINK_STARTUP="$PX4_RUNTIME/px4-rc.mavlink"
 PX4_LAUNCHER="$SCRIPT_DIR/bin/px4_launcher"
 if [[ ! -x "$PX4_LAUNCHER" ]]; then
@@ -32,12 +38,20 @@ if [[ ! -x "$PX4_LAUNCHER" ]]; then
     exit 1
 fi
 "$PX4_LAUNCHER" prepare "$PX4_BUILD/etc/init.d-posix" "$PX4_RUNTIME_RCS" "$PX4_MAVLINK_STARTUP" "$PX4_INSTANCE" "$PX4_MAVLINK_ROUTER"
-export PX4_SIM_MODEL=gazebo-classic_plane
+export PX4_SIM_MODEL="$model"
 export PX4_SIMULATOR=isaac
-export PX4_SYS_AUTOSTART=1030
+export PX4_SYS_AUTOSTART="$autostart"
 export PX4_SIM_SPEED_FACTOR=1
+export PX4_HOME_LAT="${SIM_LAT:-${PX4_HOME_LAT:-47.397742}}"
+export PX4_HOME_LON="${SIM_LON:-${PX4_HOME_LON:-8.545594}}"
+export PX4_HOME_ALT="${SIM_ALT:-${PX4_HOME_ALT:-489.4}}"
 unset PX4_SIM_HOSTNAME PX4_SIM_HOST_ADDR
-printf 'Isaac physics/sensors: TCP %s; actuator channels: 0 roll, 1 pitch, 2 yaw, 3 throttle\n' "$((4560 + PX4_INSTANCE))"
+printf 'Isaac %s physics/sensors: TCP %s\n' "$XOVIUM_VEHICLE" "$((4560 + PX4_INSTANCE))"
+if [[ "$XOVIUM_VEHICLE" == r1_rover ]]; then
+    printf '%s\n' 'Actuator channels: 0 right wheels, 1 left wheels; reversible differential drive.'
+else
+    printf '%s\n' 'Actuator channels: 0 roll, 1 pitch, 2 yaw, 3 throttle.'
+fi
 if [[ "$PX4_MAVLINK_ROUTER" == 1 ]]; then
     printf '%s\n' 'PX4 -> MAVLink router: UDP 14550; QGC/app: use router endpoints.'
 else

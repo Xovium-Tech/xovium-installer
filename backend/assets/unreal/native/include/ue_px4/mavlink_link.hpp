@@ -18,6 +18,8 @@ public:
     ReceiveResult receive_controls(Controls&,double timeout_seconds,std::string& error);
     void close();
     int port() const;
+    void set_rover(bool enabled);
+    void set_origin(GeoOrigin origin);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

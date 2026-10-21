@@ -1,6 +1,6 @@
 [package]
 version = "1.0.0"
-title = "PX4 Native Fixed Wing"
+title = "PX4 Native Vehicle Physics"
 [dependencies]
 "omni.usd" = {}
 "omni.physx" = {}

@@ -9,7 +9,7 @@ constexpr double mass_kg = 2.0;
 constexpr double pi = 3.14159265358979323846;
 struct Vec3 { double x=0, y=0, z=0; };
 struct Quat { double w=1, x=0, y=0, z=0; };
-struct Controls { double roll=0, pitch=0, yaw=0, throttle=0; bool armed=false; };
+struct Controls { double roll=0, pitch=0, yaw=0, throttle=0; bool armed=false; double right_wheel=0, left_wheel=0; };
 struct State {
     Vec3 position_ned_m, velocity_ned_mps, acceleration_ned_mps2;
     Vec3 angular_velocity_frd_radps;
@@ -73,8 +73,10 @@ struct SensorSample {
     double latitude_deg,longitude_deg,altitude_m,pressure_hpa,temperature_c,differential_pressure_hpa;
     double indicated_airspeed_mps,true_airspeed_mps;
 };
-inline SensorSample sample_sensors(const State& s) {
-    constexpr double lat=47.397742,lon=8.545594,alt=489.4,radius=6378137;
+struct GeoOrigin { double latitude=47.397742,longitude=8.545594,altitude=489.4; };
+inline SensorSample sample_sensors(const State& s,GeoOrigin origin={}) {
+    constexpr double radius=6378137;
+    const double lat=origin.latitude,lon=origin.longitude,alt=origin.altitude;
     const double height=alt-s.position_ned_m.z;
     const double temp=288.15-.0065*std::clamp(height,-1000.0,11000.0);
     double pressure=101325*std::pow(temp/288.15,gravity/(287.05*.0065));

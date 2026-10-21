@@ -1,4 +1,5 @@
 #include "PX4Plane.h"
+#include "ue_px4/rover_model.hpp"
 
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
@@ -104,6 +105,14 @@ void APX4Plane::BeginPlay()
         return;
     }
 
+    FString Vehicle = TEXT("rc_cessna");
+    FParse::Value(FCommandLine::Get(), TEXT("PX4Vehicle="), Vehicle);
+    if (Vehicle != TEXT("rc_cessna") && Vehicle != TEXT("r1_rover"))
+    {
+        Fail(TEXT("PX4Vehicle must be rc_cessna or r1_rover.")); return;
+    }
+    bRover = Vehicle == TEXT("r1_rover");
+    if (bRover) ConfigureRover();
     int32 Port = 4560;
     double Hz = 250.0;
     FParse::Value(FCommandLine::Get(), TEXT("PX4Port="), Port);
@@ -118,6 +127,9 @@ void APX4Plane::BeginPlay()
         Fail(TEXT("Invalid PX4Port, SimHz (must be 250), SimSpeed (>=0), or timeout (>0)."));
         return;
     }
+    // PX4's rover controller publishes at 100 Hz and stays silent disarmed.
+    // Keep its sensor clock advancing at real time instead of flight lockstep.
+    if (bRover) Speed = 1.0;
     StepUs = static_cast<uint64>(FMath::RoundToDouble(1000000.0 / Hz));
     StepSeconds = static_cast<double>(StepUs) / 1000000.0;
     FApp::SetFixedDeltaTime(StepSeconds);
@@ -135,6 +147,8 @@ void APX4Plane::BeginPlay()
         MaxFps->Set(0.0f, ECVF_SetByCode);
     }
 
+    if (IConsoleVariable* Idle = IConsoleManager::Get().FindConsoleVariable(TEXT("t.IdleWhenNotForeground")))
+        Idle->Set(0, ECVF_SetByCode);
     GroundContactMaterial = NewObject<UPhysicalMaterial>(this);
     GroundContactMaterial->Friction = 0.02f;
     GroundContactMaterial->StaticFriction = 0.02f;
@@ -142,7 +156,7 @@ void APX4Plane::BeginPlay()
     GroundContactMaterial->bOverrideFrictionCombineMode = true;
     GroundContactMaterial->FrictionCombineMode = EFrictionCombineMode::Min;
     Body->SetPhysMaterialOverride(GroundContactMaterial);
-    Body->SetMassOverrideInKg(NAME_None, static_cast<float>(ue_px4::mass_kg), true);
+    Body->SetMassOverrideInKg(NAME_None, static_cast<float>(bRover ? ue_px4::rover_mass_kg : ue_px4::mass_kg), true);
 
     UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
@@ -158,12 +172,44 @@ void APX4Plane::BeginPlay()
         }
     }
 
+    FString CustomModel;
+    if (FParse::Value(FCommandLine::Get(), TEXT("PX4Model="), CustomModel))
+    {
+        UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *CustomModel);
+        if (!Mesh) { Fail(TEXT("Cannot load the selected aircraft static mesh.")); return; }
+        for (const auto& Visual : Visuals) Visual->SetVisibility(false);
+        auto* CustomVisual = NewObject<UStaticMeshComponent>(this, TEXT("CustomAircraftVisual"));
+        AddInstanceComponent(CustomVisual);
+        CustomVisual->SetupAttachment(Body);
+        CustomVisual->SetMobility(EComponentMobility::Movable);
+        CustomVisual->SetStaticMesh(Mesh);
+        if (bRover)
+            // Suspension settles about 15 cm above the contact surface.
+            CustomVisual->SetRelativeLocation(FVector(0,0,-15.0f-Mesh->GetBoundingBox().Min.Z));
+        CustomVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        CustomVisual->RegisterComponent();
+        UE_LOG(LogPX4Plane, Display, TEXT("Custom aircraft mesh: %s"), *CustomModel);
+    }
+
     std::string Error;
     if (!Link.listen(Port, Error))
     {
         Fail(FString::Printf(TEXT("MAVLink listen failed: %s"), UTF8_TO_TCHAR(Error.c_str())));
         return;
     }
+    Link.set_rover(bRover);
+    ue_px4::GeoOrigin Origin;
+    auto ReadOrigin = [](const TCHAR* Name,double& Value) {
+        const FString Text=FPlatformMisc::GetEnvironmentVariable(Name);
+        if (!Text.IsEmpty()) Value=FCString::Atod(*Text);
+    };
+    ReadOrigin(TEXT("PX4_HOME_LAT"),Origin.latitude);
+    ReadOrigin(TEXT("PX4_HOME_LON"),Origin.longitude);
+    ReadOrigin(TEXT("PX4_HOME_ALT"),Origin.altitude);
+    if (!FMath::IsFinite(Origin.latitude) || FMath::Abs(Origin.latitude)>85 ||
+        !FMath::IsFinite(Origin.longitude) || FMath::Abs(Origin.longitude)>180 || !FMath::IsFinite(Origin.altitude))
+    { Fail(TEXT("Invalid PX4_HOME_LAT/LON/ALT origin.")); return; }
+    Link.set_origin(Origin);
     UE_LOG(LogPX4Plane, Display, TEXT("PX4_SIM_LISTENING port=%d; waiting for PX4 SITL"), Port);
     if (!Link.accept_client(StartupTimeout, Error))
     {
@@ -180,7 +226,56 @@ void APX4Plane::BeginPlay()
     WallStart = FPlatformTime::Seconds();
     bReady = true;
     UE_LOG(LogPX4Plane, Display, TEXT("PX4_SIM_READY hz=%.3f speed=%.2f mass=%.2f kg"),
-        1.0 / StepSeconds, Speed, ue_px4::mass_kg);
+        1.0 / StepSeconds, Speed, bRover ? ue_px4::rover_mass_kg : ue_px4::mass_kg);
+}
+
+void APX4Plane::ConfigureRover()
+{
+    Body->SetBoxExtent(FVector(20, 18, 8));
+    Body->BodyInstance.InertiaTensorScale = FVector(1, 1, 1);
+    CameraArm->TargetArmLength = 350;
+    for (const auto& Visual : Visuals) Visual->SetVisibility(false);
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    auto Visual = [&](FName Name, UStaticMesh* Mesh, FVector Position, FVector Scale, FRotator Rotation)
+    {
+        auto* Part = NewObject<UStaticMeshComponent>(this, Name);
+        AddInstanceComponent(Part); Part->SetupAttachment(Body);
+        Part->SetMobility(EComponentMobility::Movable); Part->SetStaticMesh(Mesh);
+        Part->SetRelativeLocation(Position); Part->SetRelativeScale3D(Scale);
+        Part->SetRelativeRotation(Rotation); Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Part->RegisterComponent(); Visuals.Add(Part);
+    };
+    Visual(TEXT("RoverChassis"), Cube, FVector::ZeroVector, FVector(.4,.32,.16), FRotator::ZeroRotator);
+    for (int32 X : {-1, 1}) for (int32 Y : {-1, 1})
+        Visual(FName(*FString::Printf(TEXT("RoverWheel_%d_%d"),X,Y)), Cylinder,
+            FVector(X*15,Y*15,-5), FVector(.20,.20,.07), FRotator(0,0,90));
+}
+
+void APX4Plane::ApplyRoverForces()
+{
+    const FQuat Rotation=Body->GetComponentQuat();
+    const FVector Up=Rotation.GetUpVector();
+    const FVector Forward=Rotation.GetForwardVector();
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(RoverWheelContact), true, this);
+    for (int32 X : {-1, 1}) for (int32 Y : {-1, 1})
+    {
+        const FVector Mount=Body->GetComponentTransform().TransformPosition(FVector(X*15,Y*15,0));
+        FHitResult Hit;
+        if (!GetWorld()->LineTraceSingleByChannel(Hit,Mount,Mount-Up*30,ECC_Visibility,Query)) continue;
+        const FVector Normal=Hit.ImpactNormal.GetSafeNormal();
+        if (FVector::DotProduct(Normal,Up)<.3) continue;
+        const FVector Velocity=Body->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint)*.01;
+        const double Load=ue_px4::rover_normal_force(Hit.Distance*.01,FVector::DotProduct(Velocity,Normal));
+        if (Load<=0) continue;
+        const FVector Tangent=FVector::VectorPlaneProject(Forward,Normal).GetSafeNormal();
+        const FVector Side=FVector::CrossProduct(Normal,Tangent).GetSafeNormal();
+        const double Command=Y>0 ? Controls.right_wheel : Controls.left_wheel;
+        const auto Tire=ue_px4::rover_tire_force(Load,FVector::DotProduct(Velocity,Tangent),
+            FVector::DotProduct(Velocity,Side),Command,Controls.armed);
+        const FVector Force=(Normal*Load+Tangent*Tire.longitudinal+Side*Tire.lateral)*100;
+        Body->AddForceAtLocation(Force,Hit.ImpactPoint);
+    }
 }
 
 bool APX4Plane::Bootstrap()
@@ -188,6 +283,12 @@ bool APX4Plane::Bootstrap()
     const double Deadline = FPlatformTime::Seconds() + StartupTimeout;
     const ue_px4::State FrozenState = ReadState(FVector::ZeroVector);
     std::string Error;
+    if (bRover)
+    {
+        if (!Link.send_state(FrozenState,TimeUs,Error))
+        { Fail(FString::Printf(TEXT("Initial rover sensors failed: %s"),UTF8_TO_TCHAR(Error.c_str()))); return false; }
+        return true;
+    }
     while (FPlatformTime::Seconds() < Deadline)
     {
         if (!Link.send_state(FrozenState, TimeUs, Error))
@@ -238,7 +339,17 @@ void APX4Plane::Tick(float DeltaSeconds)
             DeltaSeconds, StepSeconds));
         return;
     }
-    if (!bHaveControls)
+    if (bRover)
+    {
+        std::string Error;
+        const auto Result=Link.receive_controls(Controls,0,Error);
+        if (Result==ue_px4::MavlinkLink::ReceiveResult::Controls) LastRoverControlsUs=TimeUs;
+        else if (Result!=ue_px4::MavlinkLink::ReceiveResult::Timeout)
+        { Fail(FString::Printf(TEXT("PX4 rover controls disconnected: %s"),UTF8_TO_TCHAR(Error.c_str()))); return; }
+        // Disarm stops rover publication; expire the cached drive within 200ms.
+        if (!LastRoverControlsUs || TimeUs-LastRoverControlsUs>200000) Controls={};
+    }
+    else if (!bHaveControls)
     {
         std::string Error;
         if (Link.receive_controls(Controls, ControlTimeout, Error) !=
@@ -263,6 +374,12 @@ void APX4Plane::Tick(float DeltaSeconds)
     const FQuat Rotation = Body->GetComponentQuat();
     const FVector VelocityBody = Rotation.UnrotateVector(Body->GetPhysicsLinearVelocity());
     const FVector RatesBody = Rotation.UnrotateVector(Body->GetPhysicsAngularVelocityInRadians());
+    if (bRover)
+    {
+        ApplyRoverForces();
+        bStepPending = true;
+        return;
+    }
     AppliedControls = ue_px4::filter_controls(AppliedControls, Controls, StepSeconds);
     const auto Wrench = ue_px4::aerodynamic_wrench(PolarToNed(VelocityBody),
         AxialToFrd(RatesBody), AppliedControls);

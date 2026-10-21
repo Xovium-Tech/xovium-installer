@@ -26,6 +26,10 @@ load_config() {
     PX4_TIMEOUT="${PX4_TIMEOUT:-30}"
     PX4_STARTUP_TIMEOUT="${PX4_STARTUP_TIMEOUT:-120}"
     JOBS="${JOBS:-4}"
+    XOVIUM_VEHICLE="${XOVIUM_VEHICLE:-rc_cessna}"
+    case "$XOVIUM_VEHICLE" in rc_cessna|r1_rover) ;; *) die 'XOVIUM_VEHICLE must be rc_cessna or r1_rover.' ;; esac
+    [[ "$XOVIUM_VEHICLE" != r1_rover ]] || SIM_SPEED=1
+    export XOVIUM_VEHICLE
     export PROJECT_ROOT UE_ROOT PX4_ROOT PX4_VENV RUNTIME_DIR UE_PROJECT
     export PX4_INSTANCE SIM_HZ SIM_SPEED PX4_TIMEOUT PX4_STARTUP_TIMEOUT JOBS
 }

@@ -44,7 +44,8 @@ def parser():
     cli.add_argument("--print-prefix", action="store_true", help="Print the actual installation directory for scripts")
     cli.add_argument("--dry-run", action="store_true", help="Print plan without writing files or running installers")
     cli.add_argument("--status", action="store_true")
-    cli.add_argument("--refresh-launchers", action="store_true", help="Refresh installed scripts and C++ Isaac/SIH support; no apt or simulator reinstall")
+    cli.add_argument("--refresh-launchers", action="store_true", help="Refresh scripts, rebuild installed native bridges and regenerate shared assets; no apt changes")
+    cli.add_argument("--refresh-assets", action="store_true", help="Regenerate installed simulator formats from the editable shared library")
     cli.add_argument("--keep-system-packages", action="store_true", help="Uninstall local files while retaining apt packages and repository")
     return cli
 
@@ -98,8 +99,12 @@ def configure(ctx, selected):
         ctx.options.unreal_engine = config["unreal_archive"]
     if "wizard" in old:
         config["wizard"] = old["wizard"]
+    else:
+        from xovium.simulation_profiles import defaults
+        config['wizard'] = defaults(config)
     ctx.config = config
-    return resolve(requested, backend)
+    from xovium.simulation_profiles import configure_shared
+    return configure_shared(config)
 
 
 def recipe_hash(ctx):
@@ -167,6 +172,9 @@ def preflight(ctx, plan):
 
 
 def install_plan(ctx, plan):
+    from xovium.simulation_profiles import migrate_shared, configure_shared
+    migrate_shared(ctx)
+    plan = configure_shared(ctx.config)
     compatibility.validate(ctx.config['px4_version'], ctx.config['requested'])
     if ctx.config.get('wizard'): compatibility.validate_profile(ctx.config['wizard'])
     for distro in ('harmonic', 'jetty'):
@@ -234,6 +242,8 @@ def install_plan(ctx, plan):
     configure_router(ctx)
     if "qgc" in ctx.config["requested"]: apps.qgc_launcher(ctx)
     setup_qgc_link(ctx)
+    from xovium.shared_assets import refresh as refresh_shared
+    refresh_shared(ctx)
     if ctx.config.get("wizard"):
         from xovium.profiles import apply
         apply(ctx, ctx.config["wizard"])
@@ -248,15 +258,37 @@ def main(argv=None):
         cli.error("--jobs must be from 1 to 128")
     if options.relocate:
         if (options.action != "install" or selection(options) or options.prefix or options.status
-                or options.refresh_launchers or options.gazebo_backend or options.keep_system_packages or options.print_prefix):
+                or options.refresh_launchers or options.refresh_assets or options.gazebo_backend or options.keep_system_packages or options.print_prefix):
             cli.error("Use --relocate PATH on its own, optionally with --dry-run")
         relocate(ROOT, options)
         return 0
     ctx = Context(ROOT, options)
     if options.print_prefix:
-        if options.action != "install" or selection(options) or options.refresh_launchers or options.status or options.gazebo_backend:
+        if options.action != "install" or selection(options) or options.refresh_launchers or options.refresh_assets or options.status or options.gazebo_backend:
             cli.error("Use --print-prefix on its own")
         print(ctx.storage)
+        return 0
+    if options.refresh_assets:
+        if options.action != 'install' or selection(options) or options.refresh_launchers or options.gazebo_backend or options.status:
+            cli.error('--refresh-assets is used on its own, optionally with --dry-run')
+        from xovium.shared_assets import refresh as refresh_shared
+        if not ctx.state.get('components'):
+            raise Error('Install a simulator before refreshing shared assets.')
+        from xovium.simulation_profiles import migrate_shared
+        ctx.config = ctx.state['config']
+        if ctx.dry:
+            migrate_shared(ctx)
+            refresh_shared(ctx)
+        else:
+            with ctx.locked():
+                ctx.config = ctx.state['config']
+                migrate_shared(ctx)
+                from xovium.core import assert_idle
+                assert_idle([ctx.storage, ctx.prefix])
+                refresh_shared(ctx)
+                if ctx.config.get('wizard'):
+                    from xovium.profiles import apply
+                    apply(ctx, ctx.config['wizard'])
         return 0
     if options.refresh_launchers:
         if options.action != "install" or selection(options) or options.gazebo_backend or options.status:

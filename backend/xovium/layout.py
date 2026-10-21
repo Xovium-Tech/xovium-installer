@@ -45,7 +45,7 @@ def native_project(ctx, asset, name):
     for original, folder in [("models", "models"), ("worlds", "worlds"), ("extensions", "plugins")]:
         if (ctx.assets / asset / original).is_dir():
             ctx.copy_asset(f"{asset}/{original}", f"{base}/{folder}")
-            internal_link(ctx, f"{base}/bridge/{original}", f"{base}/{folder}")
+        internal_link(ctx, f"{base}/bridge/{original}", f"{base}/{folder}")
     return project
 
 
@@ -55,6 +55,8 @@ def ensure_layout(ctx, *, check_only=False):
         return
     ctx.state["layout_version"] = LAYOUT_VERSION
     ctx.copy_asset("runtime/scripts", "scripts", omit=("local.env", "__pycache__"))
+    from xovium.shared_assets import ensure as ensure_shared
+    ensure_shared(ctx)
     requested = ctx.state.get("config", {}).get("requested", [])
     for name in SIMULATORS:
         if name in requested or (name == "isaac" and "sih" in requested) or (name == "sih" and "sih-core" in requested):
@@ -66,13 +68,15 @@ def refresh(ctx):
     if not ctx.state.get("components"):
         raise Error("Install a simulator section first; launcher refresh does not install dependencies.")
     check_layout(ctx)
-    ctx.say("Refresh installed session scripts and native Isaac/SIH support.")
+    ctx.say("Refresh installed session scripts, native bridges and shared asset conversions.")
+    ctx.config = ctx.state["config"]
+    from xovium.simulation_profiles import migrate_shared
+    migrate_shared(ctx)
     if ctx.dry:
         ctx.say("Dry run: no packages, downloads, simulator rebuilds or files changed.")
         return
     ensure_layout(ctx)
     from installers import apps, gazebo, px4
-    ctx.config = ctx.state["config"]
     from xovium.router_config import configure as configure_router
     configure_router(ctx)
     installed = ctx.state["components"]
@@ -98,7 +102,13 @@ def refresh(ctx):
         ctx.state["components"]["sih"]["artifacts"] = [str(path.relative_to(ctx.prefix)) for path in artifacts]
         ctx.save()
     if installed.get('unreal-engine', {}).get('status') == 'installed':
-        apps.refresh_unreal_output(ctx)
+        apps.unreal(ctx)
+    if installed.get('sih-core', {}).get('status') == 'installed' and installed.get('sih', {}).get('status') != 'installed':
+        apps.sih_core(ctx)
+    if installed.get('flightgear', {}).get('status') == 'installed':
+        px4.flightgear(ctx)
+    from xovium.shared_assets import refresh as refresh_shared
+    refresh_shared(ctx)
     if ctx.config.get('wizard'):
         from xovium.profiles import apply
         apply(ctx, ctx.config['wizard'])
