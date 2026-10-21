@@ -1,5 +1,7 @@
 """Run with UnrealEditor-Cmd -run=pythonscript after the shared FBX export."""
+import json
 import os
+import re
 from pathlib import Path
 import unreal
 
@@ -105,42 +107,61 @@ def import_mesh(source, folder, name, ground=False, materials=True):
     return mesh
 
 
-vehicles=['rc_cessna','r1_rover']
-if (base/'models/custom/custom.fbx').is_file(): vehicles.append('custom')
+model_only = os.environ.get('XOVIUM_SHARED_UE_MODEL_ONLY') == '1'
+skip_models = os.environ.get('XOVIUM_SHARED_UE_SKIP_MODELS') == '1'
+if model_only and skip_models:
+    raise RuntimeError('Model-only import cannot also skip model imports')
+if skip_models:
+    vehicles = []
+elif 'XOVIUM_SHARED_UE_MODELS' in os.environ:
+    vehicles = json.loads(os.environ['XOVIUM_SHARED_UE_MODELS'])
+    if not isinstance(vehicles, list) or not vehicles or any(
+            not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', name)
+            for name in vehicles):
+        raise RuntimeError('XOVIUM_SHARED_UE_MODELS must contain valid model asset names')
+elif model_only:
+    raise RuntimeError('Model-only import requires XOVIUM_SHARED_UE_MODELS')
+else:
+    vehicles = ['rc_cessna', 'r1_rover']
+    if (base / 'models/custom/custom.fbx').is_file():
+        vehicles.append('custom')
 for vehicle in vehicles:
     import_mesh(base / 'models' / vehicle / (vehicle + '.fbx'), '/Game/Models/' + vehicle, vehicle)
 
-terrain = material_asset('/Game/Worlds', 'M_Terrain')
-texture = unreal.MaterialEditingLibrary.create_material_expression(terrain, unreal.MaterialExpressionTextureSampleParameter2D)
-texture.set_editor_property('parameter_name', 'TerrainTexture')
-texture.set_editor_property('texture', unreal.load_asset('/Engine/EngineResources/WhiteSquareTexture'))
-unreal.MaterialEditingLibrary.connect_material_property(texture, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
-roughness = unreal.MaterialEditingLibrary.create_material_expression(terrain, unreal.MaterialExpressionConstant)
-roughness.set_editor_property('r', .95)
-unreal.MaterialEditingLibrary.connect_material_property(roughness, '', unreal.MaterialProperty.MP_ROUGHNESS)
-unreal.MaterialEditingLibrary.recompile_material(terrain)
-unreal.EditorAssetLibrary.save_loaded_asset(terrain)
+if not model_only:
+    terrain = material_asset('/Game/Worlds', 'M_Terrain')
+    texture = unreal.MaterialEditingLibrary.create_material_expression(terrain, unreal.MaterialExpressionTextureSampleParameter2D)
+    texture.set_editor_property('parameter_name', 'TerrainTexture')
+    texture.set_editor_property('texture', unreal.load_asset('/Engine/EngineResources/WhiteSquareTexture'))
+    unreal.MaterialEditingLibrary.connect_material_property(texture, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
+    roughness = unreal.MaterialEditingLibrary.create_material_expression(terrain, unreal.MaterialExpressionConstant)
+    roughness.set_editor_property('r', .95)
+    unreal.MaterialEditingLibrary.connect_material_property(roughness, '', unreal.MaterialProperty.MP_ROUGHNESS)
+    unreal.MaterialEditingLibrary.recompile_material(terrain)
+    unreal.EditorAssetLibrary.save_loaded_asset(terrain)
 
-mesh = import_mesh(base / 'worlds/baylands/baylands.fbx', '/Game/Worlds/BaylandsAssets', 'Baylands')
-collision = import_mesh(base / 'worlds/baylands/baylands_collision.fbx', '/Game/Worlds/BaylandsAssets', 'BaylandsCollision', ground=True, materials=False)
-world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
-actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-# FBX maps the canonical ENU scene to (east, south, up); the native PX4
-# bridge uses Unreal X=north, Y=east. Vehicles retain their local X-forward.
-actor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(), unreal.Rotator(pitch=0, yaw=90, roll=0))
-actor.set_actor_label('Shared Baylands')
-actor.static_mesh_component.set_static_mesh(mesh)
-actor.static_mesh_component.set_collision_profile_name('NoCollision')
-ground = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(), unreal.Rotator(pitch=0, yaw=90, roll=0))
-ground.set_actor_label('Shared Baylands collision')
-ground.static_mesh_component.set_static_mesh(collision)
-ground.static_mesh_component.set_collision_profile_name('BlockAll')
-ground.set_actor_hidden_in_game(True)
-ground.static_mesh_component.set_visibility(False)
-sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 10000), unreal.Rotator(pitch=-45, yaw=-30, roll=0))
-sun.light_component.set_editor_property('intensity', 3.0)
-sky = actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector())
-sky.light_component.set_editor_property('intensity', 1.0)
-if not unreal.EditorLoadingAndSavingUtils.save_map(world, '/Game/Worlds/baylands'):
-    raise RuntimeError('Cannot save shared Baylands map')
-unreal.log('Xovium shared native models and Baylands map imported successfully.')
+    mesh = import_mesh(base / 'worlds/baylands/baylands.fbx', '/Game/Worlds/BaylandsAssets', 'Baylands')
+    collision = import_mesh(base / 'worlds/baylands/baylands_collision.fbx', '/Game/Worlds/BaylandsAssets', 'BaylandsCollision', ground=True, materials=False)
+    world = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
+    actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    # FBX maps the canonical ENU scene to (east, south, up); the native PX4
+    # bridge uses Unreal X=north, Y=east. Vehicles retain their local X-forward.
+    actor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(), unreal.Rotator(pitch=0, yaw=90, roll=0))
+    actor.set_actor_label('Shared Baylands')
+    actor.static_mesh_component.set_static_mesh(mesh)
+    actor.static_mesh_component.set_collision_profile_name('NoCollision')
+    ground = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(), unreal.Rotator(pitch=0, yaw=90, roll=0))
+    ground.set_actor_label('Shared Baylands collision')
+    ground.static_mesh_component.set_static_mesh(collision)
+    ground.static_mesh_component.set_collision_profile_name('BlockAll')
+    ground.set_actor_hidden_in_game(True)
+    ground.static_mesh_component.set_visibility(False)
+    sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 10000), unreal.Rotator(pitch=-45, yaw=-30, roll=0))
+    sun.light_component.set_editor_property('intensity', 3.0)
+    sky = actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector())
+    sky.light_component.set_editor_property('intensity', 1.0)
+    if not unreal.EditorLoadingAndSavingUtils.save_map(world, '/Game/Worlds/baylands'):
+        raise RuntimeError('Cannot save shared Baylands map')
+    unreal.log('Xovium shared native models and Baylands map imported successfully.')
+else:
+    unreal.log('Xovium model-only import completed: ' + ', '.join(vehicles))

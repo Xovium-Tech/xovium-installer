@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib/common.sh"
-usage() { printf '%s\n' 'Usage: scripts/models.sh [shared|gazebo-jetty|gazebo-harmonic|flightgear|isaac|sih|unreal-engine|px4] [--open]' 'Shared models: Cessna, rover, custom SDF. Shared worlds: Baylands, dynamic terrain.' 'Without a selection, lists shared sources and simulator exports. --open opens its model folder.' 'px4 opens the unchanged upstream simulator assets for reference.'; }
+usage() { printf '%s\n' 'Usage: scripts/models.sh [shared|gazebo-jetty|gazebo-harmonic|flightgear|isaac|sih|unreal-engine|px4] [--open]' 'Shared models: Cessna, rover, custom .xovmodel/SDF. Shared worlds: Baylands, dynamic terrain.' 'Without a selection, lists shared sources and simulator exports. --open opens its model folder.' 'Portable models are checked and converted automatically before simulator startup.' 'px4 opens the unchanged upstream simulator assets for reference.'; }
 selected=all open=0
 for arg in "$@"; do
     case "$arg" in

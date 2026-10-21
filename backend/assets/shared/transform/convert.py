@@ -67,14 +67,14 @@ def flightgear_model(shared,models,key,base,meshes):
         ET.ElementTree(root).write(target/descriptor,encoding='utf-8',xml_declaration=True)
 
 
-def export(shared,simulator,output):
+def export(shared,simulator,output, *, worlds_only=False):
     shared=Path(shared).resolve();output=Path(output).resolve()
     if simulator not in SIMULATORS: raise ValueError('Unknown simulator: '+simulator)
     if output==shared or shared.is_relative_to(output): raise ValueError('Choose a dedicated export directory')
     output.mkdir(parents=True,exist_ok=True)
     models=output/'models';worlds=output/'worlds';models.mkdir(exist_ok=True);worlds.mkdir(exist_ok=True)
     catalog=json.loads((shared/'catalog.json').read_text())
-    assets=model_assets(shared,catalog)
+    assets={} if worlds_only else model_assets(shared,catalog)
     # Validate the custom common source even for Gazebo, where the native SDF
     # is copied instead of converted. Unsupported structures must not silently
     # disappear when the same selection is used by another simulator.
@@ -149,9 +149,10 @@ def main():
     parser.add_argument('--shared',type=Path,default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--simulator',choices=SIMULATORS,required=True)
     parser.add_argument('--output',type=Path,required=True,help='Empty staging directory for generated models/worlds')
+    parser.add_argument('--worlds-only',action='store_true',help='Portable model conversion is handled separately by model_cache.py')
     args=parser.parse_args()
     if args.output.exists() and any(args.output.iterdir()): parser.error('--output must be empty; preserve existing exports first')
-    export(args.shared,args.simulator,args.output)
+    export(args.shared,args.simulator,args.output,worlds_only=args.worlds_only)
 
 
 if __name__=='__main__': main()

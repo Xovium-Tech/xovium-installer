@@ -8,6 +8,11 @@ xovium_fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 xovium_require() {
     [[ -x "$XOVIUM_PREFIX/scripts/.commands/$1" ]] || xovium_fail "Missing $1. Install its section with install.sh in the installer kit first."
 }
+xovium_prepare_models() {
+    local converter="$XOVIUM_PREFIX/shared/transform/model_cache.py"
+    [[ -f $converter ]] || xovium_fail 'Portable model conversion is missing. Refresh launchers with install.sh --refresh-launchers.'
+    python3 -B "$converter" --shared "$XOVIUM_PREFIX/shared" --simulator "$1"
+}
 xovium_configure() {
     if [[ -f "$XOVIUM_ROOT/scripts/network.env" ]]; then
         source "$XOVIUM_ROOT/scripts/network.env"

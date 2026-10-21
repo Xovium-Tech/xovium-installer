@@ -91,6 +91,21 @@ def import_custom(ctx):
     destination = ctx.managed('shared/models/custom/source')
     source = Path(selection['model_path']).expanduser().resolve()
     original = ctx.state.get('shared_custom_input')
+    if source.suffix.lower() == '.xovmodel':
+        from xovium.model_tool import import_bundle
+        from xovium.profiles import write_owned
+        bundle = ctx.managed('shared/models/custom/model.xovmodel')
+        if source == bundle.resolve() or original != str(source) or not bundle.is_file():
+            if bundle.is_file() and source != bundle.resolve() and original != str(source):
+                raise Error(f'Preserve your existing shared custom model before replacing it: {bundle}')
+            import_bundle(ctx, source, bundle)
+        write_owned(ctx, 'shared/models/custom/selection.json', json.dumps({'model_base': selection['model_base']}) + '\n')
+        ctx.state['shared_custom_input'] = str(source)
+        selection['model_path'] = str(bundle)
+        return
+    bundle = ctx.managed('shared/models/custom/model.xovmodel')
+    if bundle.exists() and original != str(source) and source != (destination / 'model.sdf').resolve():
+        raise Error(f'Preserve the current shared custom bundle before selecting a different SDF source: {bundle}')
     if source == (destination / 'model.sdf').resolve():
         custom_source(source)
     elif original == str(source) and (destination / 'model.sdf').is_file():
@@ -132,12 +147,12 @@ def import_custom(ctx):
 
 def fingerprint(shared):
     sha = hashlib.sha256()
-    for name in ('catalog.json', 'models', 'worlds', 'transform'):
+    for name in ('catalog.json', 'worlds', 'transform'):
         path = shared / name
         files = sorted(p for p in path.rglob('*') if p.is_file()) if path.is_dir() else [path]
         for file in files:
             relative = file.relative_to(shared)
-            if set(relative.parts) & {'cache', 'build', '__pycache__'}:
+            if set(relative.parts) & {'cache', 'build', '__pycache__', 'model-tool', 'model-tool-source', '.git'}:
                 continue
             sha.update(str(relative).encode())
             sha.update(digest(file).encode())
@@ -206,15 +221,23 @@ def refresh(ctx):
     if ctx.dry:
         ctx.say('Shared library: seed Cessna, rover, Baylands and dynamic terrain; regenerate installed simulator formats.')
         return
-    if not populate(ctx):
+    if not (ctx.prefix / 'px4/source/Tools/simulation/gz').is_dir():
         return
+    from xovium import model_tool
+    ensure(ctx)
+    model_tool.install(ctx)
+    if not populate(ctx): return
+    model_tool.seed_bundles(ctx)
+    model_tool.adopt(ctx)
     retire_presets(ctx)
     shared = ctx.managed('shared')
     names = installed_simulators(ctx)
     compile_converter(ctx)
     signature = fingerprint(shared)
     exports = ctx.state.setdefault('shared_exports', {})
+    bundle_keys = set(model_tool.runtime_module(shared).bundles(shared))
     for name in names:
+        model_tool.prepare_models(ctx, name)
         previous = exports.get(name, {})
         # Reuse only if both the common sources and every exported file match.
         intact = previous.get('source') == signature and all(
@@ -223,11 +246,11 @@ def refresh(ctx):
         if intact and previous.get('files'):
             ctx.say(f'[shared] Reuse {name} export')
             continue
-        ctx.say(f'[shared] Convert models and worlds for {name}')
+        ctx.say(f'[shared] Convert worlds for {name}')
         with tempfile.TemporaryDirectory(prefix='export-', dir=ctx.managed('shared/cache')) as temp:
             output = Path(temp)
             ctx.run('python3', shared / 'transform/convert.py', '--shared', shared,
-                    '--simulator', name, '--output', output)
+                    '--simulator', name, '--output', output, '--worlds-only')
             files = {}
             for file in sorted(p for p in output.rglob('*') if p.is_file()):
                 relative = f'simulation/{name}/' + str(file.relative_to(output))
@@ -237,7 +260,9 @@ def refresh(ctx):
                 files[relative] = digest(file)
             obsolete = {path: value for path, value in previous.get('files', {}).items()
                         if path not in files and Path(path).suffix not in ('.umap', '.uasset')
-                        and not px4_supplied(ctx, path)}
+                        and not px4_supplied(ctx, path)
+                        and not (len(Path(path).parts) > 3 and Path(path).parts[2] == 'models'
+                                 and (Path(path).parts[3] in bundle_keys or Path(path).parts[3].removesuffix('.usda') in bundle_keys))}
             for path, value in obsolete.items():
                 destination = ctx.managed(path)
                 if destination.exists() and digest(destination) != value:
@@ -272,17 +297,14 @@ def import_unreal(ctx):
                 '-nop4', '-NoSplash', '-notraceserver', '-traceautostart=0',
                 '-ini:Engine:[SystemSettings]:-t.IdleWhenNotForeground=0',
                 '-run=pythonscript', f'-script={script}',
-                env={'XOVIUM_SHARED_UE_EXPORT': base})
+                env={'XOVIUM_SHARED_UE_EXPORT': base, 'XOVIUM_SHARED_UE_SKIP_MODELS': '1'})
     finally:
         # A failed editor import can leave saved packages. Record only files in
         # our reserved export namespaces so a repair can resume, but subsequent
         # local edits are still detected before the editor runs again.
         ctx.state['shared_unreal_pending'] = unreal_files(ctx)
         ctx.save()
-    models = ['rc_cessna', 'r1_rover']
-    if (ctx.prefix / 'shared/models/custom/source/model.sdf').is_file(): models.append('custom')
-    required = [base / 'models' / name / (name + '.uasset') for name in models]
-    required += [base / 'worlds/baylands.umap', base / 'worlds/M_Terrain.uasset',
+    required = [base / 'worlds/baylands.umap', base / 'worlds/M_Terrain.uasset',
                  base / 'worlds/BaylandsAssets/BaylandsCollision.uasset']
     if not all(file.is_file() and file.stat().st_size for file in required):
         raise Error('Unreal shared import did not produce all native packages.')
@@ -293,7 +315,7 @@ def import_unreal(ctx):
 def unreal_files(ctx):
     base = ctx.managed('simulation/unreal-engine')
     result = {}
-    for name in ('models/rc_cessna', 'models/r1_rover', 'models/custom', 'worlds/BaylandsAssets',
+    for name in ('worlds/BaylandsAssets',
                  'worlds/baylands.umap', 'worlds/M_Terrain.uasset'):
         path = base / name
         files = path.rglob('*') if path.is_dir() else [path]

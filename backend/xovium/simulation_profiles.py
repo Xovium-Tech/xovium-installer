@@ -1,6 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 import json
+import zipfile
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -62,7 +63,7 @@ def migrate_shared(ctx):
         item = get(data, name)
         if item['world'] == 'custom' or item['model'] == 'custom':
             raise Error(f'{name} has a saved simulator-specific custom asset. Reopen the installer and '
-                        'choose Baylands or dynamic terrain and one shared model.sdf before refreshing; '
+                        'choose Baylands or dynamic terrain and one shared .xovmodel or model.sdf before refreshing; '
                         'the old custom selection has not been replaced.')
     active = 'gazebo-' + config.get('backend', 'harmonic')
     primary = active if active in names else names[0] if names else None
@@ -160,6 +161,32 @@ def custom_source(path):
     return root
 
 
+def portable_source(path):
+    """Read bundle metadata for the wizard; native import validates every asset."""
+    if not path.is_file() or path.is_symlink(): raise Error('Choose an existing .xovmodel file.')
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set()
+            total = 0
+            for entry in archive.infolist():
+                relative = Path(entry.filename)
+                total += entry.file_size
+                if (relative.is_absolute() or '..' in relative.parts or '\\' in entry.filename or
+                        entry.filename in names or (entry.external_attr >> 16) & 0o170000 == 0o120000 or
+                        entry.file_size > 512 * 1024**2 or total > 2 * 1024**3 or len(names) >= 10000):
+                    raise Error('Unsafe or oversized model bundle: ' + str(path))
+                names.add(entry.filename)
+            info = archive.getinfo('project.json')
+            if info.file_size > 16 * 1024**2: raise Error('Model document is too large.')
+            document = json.loads(archive.read(info))
+            if (not isinstance(document, dict) or document.get('format') != 'xovium-model' or
+                    type(document.get('version')) is not int or document['version'] != 1):
+                raise Error('Unsupported .xovmodel format or version.')
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        raise Error('Cannot read portable model: ' + str(error)) from error
+    return document
+
+
 def validate_shared(data):
     result = deepcopy(data)
     shared = result['shared_selection']
@@ -174,7 +201,8 @@ def validate_shared(data):
         raise Error('Invalid shared model path.')
     if shared['model'] == 'custom':
         path = Path(value).expanduser().resolve()
-        custom_source(path)
+        if path.suffix.lower() == '.xovmodel': portable_source(path)
+        else: custom_source(path)
         shared['model_path'] = str(path)
     else:
         shared['model_base'] = shared['model']

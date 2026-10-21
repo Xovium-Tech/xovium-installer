@@ -187,6 +187,7 @@ if (( ! dry )); then
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM HUP
+    xovium_prepare_models "$simulator"
     case "$simulator" in
         isaac|sih) [[ $main == sih-px4 ]] || printf 'Isaac first startup can take several minutes while the GPU compiles shaders. Logs: %s\n' "$log_dir" ;;
     esac

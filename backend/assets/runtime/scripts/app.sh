@@ -10,4 +10,10 @@ case "$app" in
 esac
 xovium_configure
 xovium_require "$app"
+case "$app" in
+    gazebo-jetty|gazebo-harmonic) xovium_prepare_models "$app" ;;
+    isaac|isaac-sim|isaac-px4) xovium_prepare_models isaac ;;
+    sih-view|sih-px4) xovium_prepare_models sih ;;
+    unreal|unreal-editor|unreal-px4) xovium_prepare_models unreal-engine ;;
+esac
 exec "$XOVIUM_PREFIX/scripts/.commands/$app" "$@"

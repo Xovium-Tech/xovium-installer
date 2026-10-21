@@ -279,11 +279,11 @@ struct App {
         if (picker.running()) return;
         const bool directory = target == 2;
         std::string title = target == 1 ? "Select the official UE 5.6.1 Linux ZIP" : target == 2 ?
-            "Choose the installation folder" : "Select your shared model.sdf";
+            "Choose the installation folder" : "Select your shared .xovmodel or model.sdf";
         std::vector<std::string> args = {"zenity", "--file-selection", "--title=" + title};
         if (directory) args.push_back("--directory");
         else {
-            const char* filter = target == 1 ? "ZIP | *.zip" : "Shared SDF model | model.sdf";
+            const char* filter = target == 1 ? "ZIP | *.zip" : "Shared vehicle model | *.xovmodel model.sdf";
             args.push_back(std::string("--file-filter=") + filter);
         }
         const char* current = pathTarget(target).data();
@@ -507,9 +507,9 @@ void modelsPage(App& a) {
         a.sharedEdited = true; a.previewOk = false;
     }
     if (shared.model == 2) {
-        ui::TextUnformatted("Your model.sdf");
+        ui::TextUnformatted("Your .xovmodel or model.sdf");
         ui::SetNextItemWidth(std::max(180.f, ui::GetContentRegionAvail().x - 108));
-        if (ui::InputTextWithHint("##shared-model-path", "/path/to/your/model.sdf", shared.modelPath.data(), shared.modelPath.size())) {
+        if (ui::InputTextWithHint("##shared-model-path", "/path/to/your/model.xovmodel", shared.modelPath.data(), shared.modelPath.size())) {
             a.sharedEdited = true; a.previewOk = false;
         }
         ui::SameLine(); if (ui::Button("Browse...##shared-model")) a.choosePath(3);
@@ -518,7 +518,7 @@ void modelsPage(App& a) {
         if (ui::Combo("##shared-model-adapter", &shared.baseModel, modelAdapters, IM_ARRAYSIZE(modelAdapters))) {
             a.sharedEdited = true; a.previewOk = false;
         }
-        hint("The model and its referenced assets are copied into shared/models and converted for every selected simulator. Keep meshes and textures with model.sdf.");
+        hint("Portable .xovmodel bundles from Xovium Model Editor are stored in shared/models. Each launch converts missing or changed simulator models automatically. SDF imports remain supported.");
         hint("Choose the matching aircraft or rover adapter. Native simulators use that adapter's physics and controls; custom SDF dynamics are not translated automatically.");
     }
     if (a.s.flightgear && shared.adapter() == 0)
@@ -526,7 +526,7 @@ void modelsPage(App& a) {
     if (a.s.sih)
         hint("Lightweight simulation uses PX4's built-in airplane physics or native differential-drive rover physics.");
     section("YOUR SHARED LIBRARY");
-    hint("Edit common sources in shared/models and shared/worlds. The conversion layer is in shared/transform.");
+    hint("Edit shared/models/cessna/model.xovmodel or shared/models/rover/model.xovmodel in Xovium Model Editor. Custom models use shared/models/custom/model.xovmodel. The conversion layer is in shared/transform.");
 }
 void sensorsPage(App& a) {
     heading("Configure Gazebo sensors", "Optional sensors are added to a generated model. The original PX4 models remain available.");

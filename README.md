@@ -92,15 +92,19 @@ Installing a simulator creates a common asset library inside the installation:
 xovium/
   shared/
     models/
-      cessna/source/                 # PX4 RC Cessna SDF, meshes and textures
-      rover/source/                  # PX4 R1 differential rover
+      cessna/model.xovmodel          # Editable portable Cessna project
+      rover/model.xovmodel           # Editable portable rover project
+      cessna/source/                 # Original PX4 SDF, meshes and textures
+      rover/source/                  # Original PX4 R1 source
       rover/physics.json             # Isaac, FlightGear and lightweight rover dynamics
-      custom/source/                 # Optional imported model.sdf, meshes and textures
+      custom/model.xovmodel          # Optional vehicle selected in the installer
     worlds/
       baylands/source/               # World plus local Baylands and water meshes
       dynamic_terrain/terrain.json    # Shared origin, imagery/elevation and cache settings
       dynamic_terrain/source/        # Streamed Gazebo world source
-    transform/                       # Converters, native templates and Unreal importer
+    transform/model-tool/            # Native C++ .xovmodel converter
+    transform/cache/model-exports/   # Conversion signatures and output hashes
+    transform/                       # Runtime adapters, world converters and Unreal importer
     cache/                           # Verified downloads and terrain cache
   simulation/<simulator>/
     models/                          # Generated simulator assets
@@ -109,23 +113,26 @@ xovium/
     plugins/
 ```
 
-The installer converts the common sources to Gazebo SDF, Isaac/SIH USD, FlightGear AC3D/XML, and Unreal FBX plus imported native packages. Baylands is downloaded once from pinned Gazebo Fuel releases with SHA-256 verification; its exported worlds reference local assets. Dynamic terrain uses the providers and origin in `shared/worlds/dynamic_terrain/terrain.json` and downloads tiles as needed.
+Before each simulator starts, Xovium checks the `.xovmodel` bundles under `shared/models`. It uses the C++ model converter to prepare Gazebo SDF, Isaac/lightweight USD, FlightGear AC3D/XML, or Unreal native packages. Unchanged bundles reuse their existing outputs. A changed bundle, converter or adapter, or a missing output triggers conversion for the requested simulator. Concurrent starts share a conversion lock; a failed conversion stops startup and preserves the previous complete model. Locally edited generated files are protected from replacement.
+
+Baylands is downloaded once from pinned Gazebo Fuel releases with SHA-256 verification; its exported worlds reference local assets. Dynamic terrain uses the providers and origin in `shared/worlds/dynamic_terrain/terrain.json` and downloads tiles as needed.
 
 Isaac streams surrounding terrain while physics continues over loaded ground. It waits at startup, or when collision terrain near the vehicle is missing; distant tiles do not pause the simulation. Nearby tiles take priority, and scene changes are spread across frames.
 
-For your own model, select `model.sdf` in a self-contained folder and choose the Cessna or rover physics adapter. The installer imports the folder into `shared/models/custom/source`; edit that installed copy afterward. Resources must be local to the folder, with direct SDF links and visible geometry (expand nested models/includes first). Native exports reuse the selected adapter's physics and collision layout. Gazebo keeps your SDF dynamics, so its joints, sensors and plugins must match the selected PX4 airframe.
+Open `shared/models/cessna/model.xovmodel` or `shared/models/rover/model.xovmodel` in [Xovium Model Editor](https://github.com/Xovium-Tech/xovium-model-editor), edit it, and save to the same path. Launch Xovium normally; conversion happens before simulator/PX4 processes start. Extra bundles can live in their own folders under `shared/models`; they are converted into the simulator's model library too. To select a different vehicle for launch, choose it as the installer's custom model.
 
-Edit the files under `shared`, then regenerate installed simulator exports:
+For your own model, select an `.xovmodel` file and the Cessna or rover physics adapter in the installer. It becomes `shared/models/custom/model.xovmodel`; edit this installed copy afterward. Self-contained `model.sdf` imports remain supported and are packaged as portable bundles. Native simulators retain the selected adapter's physics and collision layout, while Isaac cameras retain their edited mounting transforms. Other sensor metadata requires the corresponding runtime support. Gazebo keeps the supplied SDF dynamics and native sensor definitions; joints, plugins and topic routing must match the selected PX4 airframe.
+
+Model changes are checked automatically on launch. After editing shared worlds, regenerate their installed exports:
 
 ```bash
 ./install.sh --refresh-assets
 ```
 
-Shared source edits survive installer reruns. Regeneration refuses to overwrite locally edited simulator exports. `scripts/models.sh shared --open` opens the source models. The converter can also write a separate, empty export directory for inspection:
+Shared source edits survive installer reruns. `scripts/models.sh shared --open` opens the model library. To prepare one simulator's portable models without starting it:
 
 ```bash
-python3 "$XOVIUM_PREFIX/shared/transform/convert.py" \
-  --simulator flightgear --output /path/to/empty-export
+python3 -B "$XOVIUM_PREFIX/shared/transform/model_cache.py" --simulator flightgear
 ```
 
 The R1 rover uses differential steering and reversible PX4 motor controls in every simulator. Gazebo supplies its native vehicle dynamics; Isaac uses PhysX vehicle dynamics; Unreal uses Chaos suspension and tire forces; FlightGear and the lightweight option use Xovium's native ground FDM. FlightGear renders the same streamed terrain geometry used by the rover's ground sampler. `rover/physics.json` configures the Isaac, FlightGear and lightweight adapters; Gazebo reads its SDF dynamics, and Unreal uses its compiled Chaos rover parameters.

@@ -10,7 +10,7 @@ QGC_RELEASES = {
 ISAAC_VERSION = "6.1.0.0"
 PUBLIC = ("px4", "qgc", "flightgear", "unreal-engine", "isaac", "sih", "sih-core",
           "gazebo-jetty", "gazebo-harmonic", "gazebo-plugins", "mavlink-router")
-BUILD = "build-essential ccache cmake file git libssl-dev libxml2-dev libxml2-utils ninja-build pkg-config python3-dev python3-venv rsync unzip zip libassimp-dev python3-numpy".split()
+BUILD = "build-essential ccache cmake file git libssl-dev libxml2-dev libxml2-utils ninja-build pkg-config python3-dev python3-venv rsync unzip zip libassimp-dev libpng-dev libarchive-dev libtinyxml2-dev python3-numpy".split()
 GST = "libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav".split()
 GAZEBO_BUILD = ["libopencv-dev", "libeigen3-dev"] + GST
 PACKAGES = {
