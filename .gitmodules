@@ -1,0 +1,3 @@
+[submodule "tools/xovium-model-editor"]
+	path = tools/xovium-model-editor
+	url = https://github.com/Xovium-Tech/xovium-model-editor.git

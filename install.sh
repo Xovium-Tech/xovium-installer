@@ -23,6 +23,7 @@ HELP
 esac
 command -v python3 >/dev/null || { printf 'Python 3 is required. Install python3 first.\n' >&2; exit 1; }
 python3 -B "$KIT/app/system_bootstrap.py"
+python3 -B "$KIT/backend/xovium/editor_source.py" --root "$KIT"
 mkdir -p "$KIT/.build"
 exec 9>"$KIT/.build/bootstrap.lock"
 flock 9

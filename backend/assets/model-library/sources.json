@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "px4_version": "1.16.0",
+  "models": {
+    "cessna": {
+      "file": "cessna.xovmodel",
+      "sha256": "689b8ca829303b25a67f2cbfea9c27aebc984ce8f914d1c8a667bd7f690bb059"
+    },
+    "rover": {
+      "file": "rover.xovmodel",
+      "sha256": "45b8876ea4d919ca37431acd4ccd2c72a8677ae4d35652bb6e18c47f848a6ef9"
+    }
+  }
+}

@@ -7,6 +7,13 @@ files retain their own notices:
   BSD 3-Clause. The full notice is retained in the file.
 - `backend/assets/unreal/native/vendor/terrain`: Xovium Tech dynamic terrain
   core, BSD 3-Clause; its full license is retained in that directory.
+- `backend/assets/model-library`: portable RC Cessna and R1 rover editing
+  templates from PX4 1.16.0's Gazebo models, BSD 3-Clause. Their upstream license
+  is retained beside the bundles and inside each bundle's source assets.
+
+`tools/xovium-model-editor` links the Xovium Model Editor repository as a pinned
+submodule. Its own license and third-party notices travel with the installed
+editor under `xovium/tools/xovium-model-editor`.
 
 The shared library seeds RC Cessna and R1 rover assets from the selected PX4
 Gazebo model checkout, retaining their included notices. The Baylands scene

@@ -19,25 +19,27 @@ Set up PX4 SITL, simulators, shared models and worlds, QGroundControl and MAVLin
 | Isaac Sim | NVIDIA Isaac Sim with Xovium's native PhysX/PX4 bridge; see [known limitations](#known-limitations) |
 | QGroundControl | 5.0.6, 5.0.7, **5.0.8**; default **5.0.8** |
 
-Only PX4 SITL is available. PX4 1.12–1.14 are not offered by this installer. Additional Gazebo airspeed/lidar payload assets require PX4 1.16.x or 1.17.0; standard airframe sensors remain available on 1.15.x.
+Only PX4 SITL is available. PX4 1.12–1.14 are not offered by this installer. Model sensors and plugins are edited in Xovium Model Editor; their simulator and PX4 support depends on the selected runtime.
 
 ## 1. Dependencies
 
 Use Ubuntu 24.04 x86-64 with Python 3.12, an internet connection and a user account with sudo access. Run the installer as your normal user.
 
-The GUI needs a C++17 compiler, CMake 3.22 or newer, Git, pkg-config, X11/OpenGL development packages, Zenity and xdg-utils. The bootstrap lists and installs missing packages. It downloads pinned raylib, Dear ImGui and rlImGui sources from [app/dependencies.json](app/dependencies.json).
+The GUI and model editor need a C++17 compiler, CMake 3.22 or newer, Git, pkg-config, X11/OpenGL development packages, Assimp, libpng, tinyxml2, libarchive, Zenity and xdg-utils. The bootstrap lists and installs missing packages. GUI dependencies are downloaded at pinned revisions.
 
 Simulator dependencies are installed for the selected components. Isaac Sim requires an NVIDIA RTX GPU and acceptance of NVIDIA's license. Unreal Engine requires the Linux ZIP downloaded from Epic. The wizard shows each simulator's hardware and disk requirements before installation.
 
 ## 2. Get the source and build
 
 ```bash
-git clone https://github.com/Xovium-Tech/xovium-installer.git
+git clone --recurse-submodules https://github.com/Xovium-Tech/xovium-installer.git
 cd xovium-installer
 ./install.sh --build-only
 ```
 
-You can also download a source archive from [Releases](https://github.com/Xovium-Tech/xovium-installer/releases), extract it and run the same build command in that folder. The interface is built at `.build/cmake/xovium-installer`.
+The [model editor](https://github.com/Xovium-Tech/xovium-model-editor) is a pinned Git submodule at `tools/xovium-model-editor`; GitHub displays that folder as a repository link. For an existing clone, run `git submodule update --init --recursive`. A plain clone is also supported: starting the installer initializes the missing editor submodule.
+
+You can also download a source archive from [Releases](https://github.com/Xovium-Tech/xovium-installer/releases), extract it and run the same build command in that folder. GitHub archives omit submodule contents, so the bootstrap fetches the exact editor revision recorded in `backend/editor-source.json`. The interface is built at `.build/cmake/xovium-installer`.
 
 ## 3. Use
 
@@ -49,10 +51,11 @@ Open the wizard:
 
 1. Select PX4 and its version. The default is **1.16.0**.
 2. Choose your simulators. The **Recommended** tab contains Gazebo (selected by default) and Unreal Engine. Add QGroundControl and MAVLink Router in **Shared tools** if needed.
-3. Select one shared world and model for every simulator, plus optional Gazebo sensors.
-4. Review the installation folder and disk requirements, then click **Start downloading**.
+3. Select one shared world and model for every simulator.
+4. On **Sensors**, inspect the Cessna and rover cards. Each lists the sensors and plugins attached to that model. **Change model** opens it in the editor; save and close the editor to refresh the card.
+5. Review the installation folder and disk requirements, then click **Start downloading**.
 
-The default installation folder is `xovium`, beside the installer folder. You can change it in the wizard. Rerunning the installer reuses completed components; unchecking a component does not uninstall it.
+The default installation folder is `xovium`, beside the installer folder. You can change it in the wizard. Before installation, edited models are staged in the installer kit for that installation folder; choose the destination before editing models. Untouched models continue to come from the selected PX4 release. After installation, **Change model** opens the installed `.xovmodel` directly. Rerunning the installer reuses completed components; unchecking a component does not uninstall it.
 
 From the installer folder, launch the simulator menu:
 
@@ -90,6 +93,7 @@ Installing a simulator creates a common asset library inside the installation:
 
 ```text
 xovium/
+  tools/xovium-model-editor/          # Installed desktop editor and native tools
   shared/
     models/
       cessna/model.xovmodel          # Editable portable Cessna project
@@ -120,6 +124,13 @@ Baylands is downloaded once from pinned Gazebo Fuel releases with SHA-256 verifi
 Isaac streams surrounding terrain while physics continues over loaded ground. It waits at startup, or when collision terrain near the vehicle is missing; distant tiles do not pause the simulation. Nearby tiles take priority, and scene changes are spread across frames.
 
 Open `shared/models/cessna/model.xovmodel` or `shared/models/rover/model.xovmodel` in [Xovium Model Editor](https://github.com/Xovium-Tech/xovium-model-editor), edit it, and save to the same path. Launch Xovium normally; conversion happens before simulator/PX4 processes start. Extra bundles can live in their own folders under `shared/models`; they are converted into the simulator's model library too. To select a different vehicle for launch, choose it as the installer's custom model.
+
+The installed editor runs independently of the installer checkout:
+
+```bash
+"$XOVIUM_PREFIX/tools/xovium-model-editor/run.sh" \
+  "$XOVIUM_PREFIX/shared/models/cessna/model.xovmodel"
+```
 
 For your own model, select an `.xovmodel` file and the Cessna or rover physics adapter in the installer. It becomes `shared/models/custom/model.xovmodel`; edit this installed copy afterward. Self-contained `model.sdf` imports remain supported and are packaged as portable bundles. Native simulators retain the selected adapter's physics and collision layout, while Isaac cameras retain their edited mounting transforms. Other sensor metadata requires the corresponding runtime support. Gazebo keeps the supplied SDF dynamics and native sensor definitions; joints, plugins and topic routing must match the selected PX4 airframe.
 

@@ -227,6 +227,8 @@ def refresh(ctx):
     ensure(ctx)
     model_tool.install(ctx)
     if not populate(ctx): return
+    from xovium.model_library import apply_staged
+    apply_staged(ctx)
     model_tool.seed_bundles(ctx)
     model_tool.adopt(ctx)
     retire_presets(ctx)

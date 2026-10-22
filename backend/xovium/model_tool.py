@@ -1,17 +1,26 @@
-"""Install the native portable-model converter and seed editable shared bundles."""
+"""Install the desktop model editor and native converter; seed editable bundles."""
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 
 from xovium.core import Error, digest
 
-MODEL_EDITOR_REPOSITORY = 'https://github.com/Xovium-Tech/xovium-model-editor.git'
-# Pin the tested native backend so installer refreshes remain reproducible.
-MODEL_EDITOR_COMMIT = 'd4af8258f186be9cdf4d8893f9ab9b213d66f2cf'
+EDITOR_LAUNCHER = '''#!/usr/bin/env bash
+set -euo pipefail
+EDITOR_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+export XOVIUM_MESH_IMPORT="$EDITOR_ROOT/bin/mesh-import"
+export XOVIUM_MODEL_TOOL="$EDITOR_ROOT/bin/xovium-model-tool"
+if [[ ${1:-} == --cli ]]; then
+    shift
+    exec "$XOVIUM_MODEL_TOOL" --root "$EDITOR_ROOT" "$@"
+fi
+exec "$EDITOR_ROOT/bin/xovium-model-editor" --root "$EDITOR_ROOT" "$@"
+'''
 
 
 def runtime_module(shared):
@@ -27,39 +36,71 @@ def runtime_module(shared):
 
 
 def install(ctx):
+    from xovium.editor_source import resolve, revision
     override = os.environ.get('XOVIUM_MODEL_EDITOR_SOURCE')
     if override:
         source = Path(override).expanduser().resolve()
-        if not (source / 'backend/main.cpp').is_file():
-            raise Error('XOVIUM_MODEL_EDITOR_SOURCE must contain the native model editor backend.')
+        if not all((source / name).is_file() for name in ('backend/main.cpp', 'app/main.cpp', 'tools/build-state.sh')):
+            raise Error('XOVIUM_MODEL_EDITOR_SOURCE must contain the full native model editor source.')
     else:
-        source = ctx.clone(MODEL_EDITOR_REPOSITORY, MODEL_EDITOR_COMMIT,
-                           'shared/transform/model-tool-source/' + MODEL_EDITOR_COMMIT)
-    files = [source / 'CMakeLists.txt', source / 'tools/mesh_import.cpp', source / 'app/dependencies.json']
-    files += sorted(p for p in (source / 'backend').glob('*') if p.is_file())
-    signature = hashlib.sha256(''.join(digest(file) for file in files).encode()).hexdigest()
+        source = resolve(ctx.root, run=ctx.run)
+    files = [source / name for name in ('CMakeLists.txt', 'build.sh', 'run.sh', 'LICENSE', 'THIRD_PARTY.md')]
+    for folder in ('backend', 'app', 'schema', 'tools'):
+        files += sorted(p for p in (source / folder).rglob('*')
+                        if p.is_file() and not set(p.relative_to(source).parts) & {'.git', '__pycache__', '.build'})
+    fingerprint = hashlib.sha256(EDITOR_LAUNCHER.encode())
+    for file in files:
+        if file.is_symlink(): raise Error('Model editor sources must not contain symlinks: ' + str(file))
+        fingerprint.update(file.relative_to(source).as_posix().encode())
+        fingerprint.update(digest(file).encode())
+    signature = fingerprint.hexdigest()
     destination = ctx.managed('shared/transform/model-tool')
     previous = ctx.state.get('model_tool', {})
     if (previous.get('source') == signature and previous.get('files') and
             all(ctx.managed(name).is_file() and digest(ctx.managed(name)) == value
+                and (not (Path(name).parent.name == 'bin' or Path(name).name == 'run.sh')
+                     or os.access(ctx.managed(name), os.X_OK))
                 for name, value in previous['files'].items())):
         return destination
     build = ctx.managed('shared/transform/build/model-tool')
     dependencies = ctx.managed('shared/transform/build/model-tool-deps')
-    ctx.run('bash', source / 'build.sh', '--backend-only', env={
-        'XOVIUM_BUILD_DIR': build, 'XOVIUM_DEPS_DIR': dependencies,
-        'XOVIUM_BUILD_JOBS': str(ctx.options.jobs)})
-    copies = [(build / 'xovium-model-tool', 'bin/xovium-model-tool'),
+    # The wizard may already have built the editor before installation.
+    for candidate in (source / '.build/cmake', build):
+        checked = subprocess.run(['bash', str(source / 'tools/build-state.sh'), 'check',
+                                  str(source), str(candidate), 'gui'], capture_output=True)
+        if checked.returncode == 0:
+            build = candidate
+            ctx.say('[models] Reuse desktop editor build: ' + str(build))
+            break
+    else:
+        ctx.run('bash', source / 'build.sh', env={
+            'XOVIUM_BUILD_DIR': build, 'XOVIUM_DEPS_DIR': dependencies,
+            'XOVIUM_SOURCE_CACHE': source / '.build/deps',
+            'XOVIUM_BUILD_JOBS': str(ctx.options.jobs)})
+    copies = [(build / 'xovium-model-editor', 'bin/xovium-model-editor'),
+              (build / 'xovium-model-tool', 'bin/xovium-model-tool'),
               (build / 'mesh-import', 'bin/mesh-import'),
               (source / 'backend/sensors.json', 'backend/sensors.json'),
               (source / 'schema/model.schema.json', 'schema/model.schema.json'),
               (source / 'LICENSE', 'LICENSE'), (source / 'THIRD_PARTY.md', 'THIRD_PARTY.md')]
     recorded = {}
     for original, relative in copies:
-        name = 'shared/transform/model-tool/' + relative
-        ctx.copy_tree(original, name)
-        recorded[name] = digest(original)
-    ctx.state['model_tool'] = dict(source=signature, revision=MODEL_EDITOR_COMMIT, files=recorded)
+        targets = ['tools/xovium-model-editor/' + relative]
+        if relative != 'bin/xovium-model-editor':
+            targets.append('shared/transform/model-tool/' + relative)
+        for name in targets:
+            ctx.copy_tree(original, name)
+            recorded[name] = digest(original)
+    # Stage a relocatable launcher, without the source checkout's build logic.
+    with tempfile.TemporaryDirectory(prefix='editor-launcher-') as temporary:
+        launcher = Path(temporary) / 'run.sh'
+        launcher.write_text(EDITOR_LAUNCHER)
+        launcher.chmod(0o755)
+        name = 'tools/xovium-model-editor/run.sh'
+        ctx.copy_tree(launcher, name)
+        recorded[name] = digest(launcher)
+    ctx.state['model_tool'] = dict(source=signature, revision=revision(ctx.root), files=recorded,
+                                  launcher='tools/xovium-model-editor/run.sh')
     ctx.save()
     return destination
 

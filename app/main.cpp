@@ -5,6 +5,7 @@
 #include "auth.hpp"
 #include "requirements.hpp"
 #include "px4_versions.hpp"
+#include "model_info.hpp"
 #include "imgui_internal.h"
 namespace ImStb {
 #include "imstb_textedit.h"
@@ -70,7 +71,7 @@ struct Selection {
     bool autopilot = false, sitl = false;
     bool jetty = true, harmonic = false, sih = false, flightgear = false, unreal = false;
     bool isaacPhysx = false, qgc = true, router = false;
-    bool airspeed = false, lidar = false, camera = false, license = false;
+    bool license = false;
     int qgcVersion = 0, px4Version = 0;
     RouterPorts routerPorts = defaultRouterPorts;
     int backend = 0, seed = 42, jobs = 4;
@@ -85,9 +86,6 @@ struct Selection {
         px4Version = version;
         if (!px4().jetty && jetty) { jetty = false; harmonic = true; backend = 1; }
         if (!px4().nativeBridges) { flightgear = false; unreal = false; isaacPhysx = false; }
-        if (px4().legacyModels) {
-            airspeed = false; lidar = false;
-        }
     }
     bool gazebo() const { return jetty || harmonic; }
     bool isaac() const { return isaacPhysx; }
@@ -121,8 +119,8 @@ struct Selection {
         out << "\"model_base\":" << jsonString(sharedModelIds[shared.adapter()]) << "},\n";
         flag("jetty", jetty); flag("harmonic", harmonic); flag("sih", sih); flag("flightgear", flightgear);
         flag("unreal", unreal); flag("isaac_sih", false); flag("isaac_physx", isaacPhysx);
-        flag("qgc", qgc); flag("router", router); flag("airspeed", airspeed); flag("lidar", lidar);
-        flag("camera", camera); flag("license", license);
+        flag("qgc", qgc); flag("router", router); flag("airspeed", false); flag("lidar", false);
+        flag("camera", false); flag("license", license);
         out << "\"seed\":" << seed << ",\"jobs\":" << jobs << "\n}\n";
         return out.str();
     }
@@ -132,7 +130,10 @@ enum class Job { None, Defaults, Preview, Install, RemovePreview, Remove };
 struct App {
     fs::path kit, logPath;
     Selection s;
-    Process worker, picker;
+    Process worker, picker, modelInfo, modelEditor;
+    std::array<ModelInfo, 2> models = emptyModelInfo();
+    bool modelsLoaded = false, modelsRefreshPending = true, editorCloseRequested = false;
+    std::string modelsPrefix, modelInfoPrefix, modelError, modelNotice, editingModelName;
     Authentication auth;
     PasswordBuffer password;
     uint64_t shownAuthRequest = 0;
@@ -153,6 +154,29 @@ struct App {
     std::vector<std::string> command(const std::string& action) const {
         return {"python3", "-u", "-B", (kit / "backend/wizard.py").string(), action};
     }
+    bool modelsBusy() const { return modelInfo.running() || modelEditor.running(); }
+    void refreshModels() {
+        modelsRefreshPending = true;
+        if (worker.running() || picker.running() || modelsBusy()) return;
+        auto args = command("--model-info");
+        modelInfoPrefix = s.prefix.data();
+        args.insert(args.end(), {"--prefix", modelInfoPrefix});
+        modelsLoaded = false; modelsRefreshPending = false;
+        if (!modelInfo.start(args, {}, true)) modelError = "Cannot read the model library: " + modelInfo.error;
+    }
+    void editModel(size_t index) {
+        if (index >= models.size() || worker.running() || picker.running() || modelsBusy() ||
+            !modelsLoaded || modelsPrefix != s.prefix.data() || !models[index].editable) return;
+        auto args = command("--edit-model");
+        args.insert(args.end(), {models[index].id, "--prefix", std::string(s.prefix.data())});
+        modelError.clear(); modelNotice.clear();
+        if (!modelEditor.start(args, {}, true)) {
+            modelError = "Cannot open Xovium Model Editor: " + modelEditor.error;
+            return;
+        }
+        editingModelName = models[index].name;
+        previewOk = false; removalReady = false; removeConfirmed = false;
+    }
     void defaults() {
         std::snprintf(s.prefix.data(), s.prefix.size(), "%s", (kit.parent_path() / "xovium").c_str());
         defaultsPrefix = s.prefix.data();
@@ -172,7 +196,7 @@ struct App {
         return fs::path(buffer.data());
     }
     void launch(Job next) {
-        if (worker.running() || picker.running()) return;
+        if (worker.running() || picker.running() || modelsBusy()) return;
         try {
             error.clear();
             const bool removing = next == Job::Remove || next == Job::RemovePreview;
@@ -236,9 +260,33 @@ struct App {
                     }
                 } else error = worker.output + worker.diagnostics;
                 worker.output.clear(); job = Job::None;
-            } else if (job == Job::Install && worker.status == 0) defaultsPrefix = s.prefix.data();
+            } else if (job == Job::Install && worker.status == 0) {
+                defaultsPrefix = s.prefix.data(); modelsRefreshPending = true;
+            }
             else if (job == Job::Preview) previewOk = worker.status == 0 && reviewed == s.json();
             else if (job == Job::RemovePreview) removalReady = worker.status == 0;
+            else if (job == Job::Remove) modelsRefreshPending = true;
+        }
+        const bool infoWasRunning = modelInfo.running();
+        modelInfo.poll();
+        if (infoWasRunning && !modelInfo.running()) {
+            try {
+                if (modelInfo.status != 0)
+                    throw std::runtime_error("Cannot read the model library: " + modelInfo.diagnostics + modelInfo.output);
+                models = parseModelInfo(modelInfo.output);
+                modelsPrefix = modelInfoPrefix; modelsLoaded = true;
+            } catch (const std::exception& e) { modelError = e.what(); modelsLoaded = false; }
+        }
+        const bool editorWasRunning = modelEditor.running();
+        modelEditor.poll();
+        if (editorWasRunning && !modelEditor.running()) {
+            if (modelEditor.status != 0) {
+                auto details = modelEditor.diagnostics + modelEditor.output;
+                if (details.size() > 3000) details = details.substr(details.size() - 3000);
+                modelError = "Model editor exited with status " + std::to_string(modelEditor.status) + ". " + details;
+            } else modelNotice = "Editor closed. The cards show the saved model contents.";
+            modelsRefreshPending = true;
+            previewOk = false;
         }
         auth.poll(worker.running() && (job == Job::Install || job == Job::Remove));
         picker.poll();
@@ -260,10 +308,12 @@ struct App {
             }
             pickerTarget = 0;
         }
-        if (previewPending && !worker.running()) {
+        if (previewPending && !worker.running() && !modelsBusy()) {
             previewPending = false;
             if (step == 6) launch(Job::Preview);
         }
+        if (step == 5 && !modelsBusy() && !worker.running() && !picker.running() &&
+            (modelsRefreshPending || (modelsLoaded && modelsPrefix != s.prefix.data()))) refreshModels();
         if (worker.running() && (job == Job::Install || job == Job::Remove)) {
             auto pos = worker.output.rfind("[install] ");
             if (pos != std::string::npos) stage = worker.output.substr(pos, worker.output.find('\n', pos) - pos);
@@ -299,7 +349,7 @@ struct App {
         if (target > 0 && !s.sitl) target = 0;
         if (target > 1 && !s.autopilot) target = 1;
         step = target;
-        if (!s.gazebo() && step == 5) step = 6;
+        if (step == 5) modelsRefreshPending = true;
         furthest = std::max(furthest, step);
         if (step == 6) launch(Job::Preview);
     }
@@ -313,8 +363,8 @@ struct App {
     }
     void back() {
         int previous = step - 1;
-        if (!s.gazebo() && previous == 5) previous = 4;
         step = std::max(0, previous); previewOk = false;
+        if (step == 5) modelsRefreshPending = true;
     }
 };
 
@@ -526,24 +576,64 @@ void modelsPage(App& a) {
     if (a.s.sih)
         hint("Lightweight simulation uses PX4's built-in airplane physics or native differential-drive rover physics.");
     section("YOUR SHARED LIBRARY");
-    hint("Edit shared/models/cessna/model.xovmodel or shared/models/rover/model.xovmodel in Xovium Model Editor. Custom models use shared/models/custom/model.xovmodel. The conversion layer is in shared/transform.");
+    hint("Open the Sensors page to inspect and edit the shared Cessna and rover in Xovium Model Editor. Custom models use shared/models/custom/model.xovmodel. The conversion layer is in shared/transform.");
 }
 void sensorsPage(App& a) {
-    heading("Configure Gazebo sensors", "Optional sensors are added to a generated model. The original PX4 models remain available.");
-    section("STANDARD FLIGHT SENSORS");
-    bool required = true;
-    ui::BeginDisabled();
-    ui::Checkbox("IMU", &required); ui::SameLine(155); ui::Checkbox("GPS", &required);
-    ui::SameLine(285); ui::Checkbox("Barometer", &required); ui::SameLine(465); ui::Checkbox("Magnetometer", &required);
-    ui::EndDisabled(); hint("The selected airframe keeps its standard PX4 sensor setup.");
-    section("OPTIONAL PAYLOADS");
-    ui::BeginDisabled(a.s.px4().legacyModels);
-    check("Airspeed", a.s.airspeed, "Add Gazebo's airspeed sensor and connect it to PX4. Fixed-wing defaults otherwise use PX4's simulated airspeed.");
-    check("Downward lidar", a.s.lidar, "Add the supplied LW20 range sensor with PX4 distance telemetry.");
+    heading("Model sensors & plugins", "Inspect the attachments saved in each shared model. Change a model in Xovium Model Editor to add, move or configure its sensors and plugins.");
+    if (a.s.shared.model == 2)
+        hint("Your own model remains selected for simulation. These cards edit the Cessna and rover in the shared library.");
+    if (a.modelEditor.running()) {
+        ui::TextColored(accent, "Editing %s...", a.editingModelName.c_str());
+        hint("Save your changes and close the editor to refresh these cards. Installation and removal are paused while the editor is open.");
+    } else if (a.modelInfo.running()) ui::TextColored(accent, "Reading the model library...");
+    else if (!a.modelNotice.empty()) hint(a.modelNotice.c_str());
+    ui::BeginDisabled(a.worker.running() || a.picker.running() || a.modelsBusy());
+    if (ui::SmallButton("Refresh model details")) { a.modelError.clear(); a.modelNotice.clear(); a.refreshModels(); }
     ui::EndDisabled();
-    if (a.s.px4().legacyModels) hint("Extra airspeed/lidar payload assets require PX4 1.16.x or 1.17.0. Standard airframe sensors remain available.");
-    check("RGB camera", a.s.camera, "Add the supplied camera; images are published on Gazebo Transport.");
-    ui::Dummy({0, 10}); hint("Payload selections can be combined. They configure simulation assets; validate the resulting vehicle before flight experiments.");
+    ui::Dummy({0, 8});
+    const bool current = a.modelsLoaded && a.modelsPrefix == a.s.prefix.data();
+    const int columns = ui::GetContentRegionAvail().x >= 700.f ? 2 : 1;
+    if (ui::BeginTable("model-attachments", columns, ImGuiTableFlags_SizingStretchSame)) {
+        for (size_t i = 0; i < a.models.size(); ++i) {
+            const auto& model = a.models[i];
+            ui::TableNextColumn(); ui::PushID(static_cast<int>(i));
+            ui::BeginChild("model-card", {0, 0}, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
+                           ImGuiWindowFlags_NoScrollbar);
+            ui::TextColored(accent, "%s", model.name.c_str());
+            if (current) {
+                ui::TextColored(model.available ? green : amber, "%s", model.available ? "Model available" : "Model unavailable");
+                if (!model.status.empty()) hint(model.status.c_str());
+            } else hint(a.modelInfo.running() ? "Loading model details..." : "Model details unavailable. Use Refresh to try again.");
+            ui::Dummy({0, 3});
+            const bool canEdit = current && model.editable && !a.worker.running() && !a.picker.running() && !a.modelsBusy();
+            ui::BeginDisabled(!canEdit);
+            if (primary("Change model", {-1, 40})) a.editModel(i);
+            ui::EndDisabled();
+            if (current && !model.editable && model.available)
+                hint("The editor is unavailable. See the model status above.");
+            if (current && model.available) {
+                const auto attachments = [&](const char* title, const std::vector<std::string>& values) {
+                    const std::string label = std::string(title) + " (" + std::to_string(values.size()) + ")";
+                    section(label.c_str());
+                    if (values.empty()) hint("None attached.");
+                    for (const auto& value : values) {
+                        ui::Bullet(); ui::SameLine(); ui::TextWrapped("%s", value.c_str());
+                    }
+                };
+                attachments("SENSORS", model.sensors);
+                attachments("PLUGINS", model.plugins);
+                if (!model.path.empty() && ui::CollapsingHeader("Model file")) {
+                    hint(model.path.c_str());
+                    if (ui::SmallButton("Copy path")) ui::SetClipboardText(model.path.c_str());
+                }
+            }
+            ui::EndChild(); ui::PopID();
+        }
+        ui::EndTable();
+    }
+    if (!a.modelError.empty()) { ui::Dummy({0, 10}); ui::TextWrapped("%s", a.modelError.c_str()); }
+    ui::Dummy({0, 10});
+    hint("These lists show model attachments. Each simulator supports its own sensors and plugins; a saved attachment may need simulator-specific support to run.");
 }
 void reviewPage(App& a) {
     auto& s = a.s;
@@ -564,15 +654,7 @@ void reviewPage(App& a) {
     add(s.jetty,"Jetty"); add(s.harmonic,"Harmonic"); add(s.sih,"Lightweight simulation"); add(s.flightgear,"FlightGear");
     add(s.unreal,"UE 5.6.1"); add(s.isaacPhysx,"Isaac Sim (PhysX)");
     line("Simulators", chosen);
-    if (s.gazebo()) {
-        line("Gazebo backend", s.backend == 0 ? "Jetty" : "Harmonic");
-
-        std::string sensors = "Standard sensors";
-        if (s.airspeed) sensors += ", airspeed";
-        if (s.lidar) sensors += ", lidar";
-        if (s.camera) sensors += ", RGB camera";
-        line("Sensors", sensors);
-    }
+    if (s.gazebo()) line("Gazebo backend", s.backend == 0 ? "Jetty" : "Harmonic");
     line("Shared world", sharedWorlds[s.shared.world]);
     line("Shared model", sharedModels[s.shared.model]);
     if (s.shared.model == 2) {
@@ -588,7 +670,7 @@ void reviewPage(App& a) {
     if (a.worker.running()) ui::TextColored(accent, "Checking the installation plan...");
     else if (a.previewOk) ui::TextColored(green, "Plan validated. Ready to download.");
     else ui::TextColored(amber, "Validate the plan before starting.");
-    ui::BeginDisabled(a.worker.running() || a.picker.running()); if (ui::Button("Validate plan")) a.launch(Job::Preview); ui::EndDisabled();
+    ui::BeginDisabled(a.worker.running() || a.picker.running() || a.modelsBusy()); if (ui::Button("Validate plan")) a.launch(Job::Preview); ui::EndDisabled();
     if (!a.worker.output.empty()) {
         if (ui::CollapsingHeader("Installation plan / validation details", a.previewOk ? ImGuiTreeNodeFlags_None : ImGuiTreeNodeFlags_DefaultOpen)) logs(a, 170);
     }
@@ -674,13 +756,13 @@ void managePage(App& a) {
     line("Managed location", a.defaultsPrefix);
     hint("Removal deletes the managed simulation folders, runtime data and owned package dependencies. Review the removal plan first. Existing unrelated system packages are retained.");
     ui::Dummy({0, 18});
-    ui::BeginDisabled(a.worker.running() || a.picker.running()); if (ui::Button("Uninstall", {200, 40})) a.launch(Job::RemovePreview); ui::EndDisabled();
+    ui::BeginDisabled(a.worker.running() || a.picker.running() || a.modelsBusy()); if (ui::Button("Uninstall", {200, 40})) a.launch(Job::RemovePreview); ui::EndDisabled();
     if (a.job == Job::RemovePreview) {
         if (!a.worker.output.empty()) logs(a, 230);
-        ui::BeginDisabled(!a.removalReady || a.worker.running());
+        ui::BeginDisabled(!a.removalReady || a.worker.running() || a.modelsBusy());
         ui::Checkbox("Remove the managed software and its runtime data", &a.removeConfirmed);
         ui::EndDisabled();
-        ui::BeginDisabled(!a.removalReady || !a.removeConfirmed || a.worker.running());
+        ui::BeginDisabled(!a.removalReady || !a.removeConfirmed || a.worker.running() || a.modelsBusy());
         if (ui::Button("Uninstall software", {200, 42})) a.launch(Job::Remove);
         ui::EndDisabled();
     }
@@ -713,15 +795,14 @@ void draw(App& a) {
     ui::TextColored(accent, "X O V I U M"); hint("INSTALLER  /  0.3.0"); ui::Dummy({0, 30});
     const char* steps[] = {"Execution mode", "Autopilot", "Simulators", "Worlds", "Models", "Sensors", "Review & install"};
     for (int i = 0; i < 7; ++i) {
-        const bool skipped = !a.s.gazebo() && i == 5;
         const std::string label = std::to_string(i + 1) + "   " + steps[i];
-        ui::BeginDisabled(a.worker.running() || a.picker.running() || i > a.furthest || skipped || a.step == 7);
+        ui::BeginDisabled(a.worker.running() || a.picker.running() || a.modelsBusy() || i > a.furthest || a.step == 7);
         if (ui::Selectable(label.c_str(), a.step == i, 0, {0, 34})) a.navigate(i);
         ui::EndDisabled();
     }
     ui::SetCursorPosY(std::max(ui::GetCursorPosY() + 24, height - 265));
     ui::Separator(); hint("One shared autopilot.\nYour choice of simulation."); ui::Dummy({0, 10});
-    ui::BeginDisabled(a.worker.running() || a.picker.running()); if (ui::Button("Manage installation", {195, 38})) a.manage(); ui::EndDisabled();
+    ui::BeginDisabled(a.worker.running() || a.picker.running() || a.modelsBusy()); if (ui::Button("Manage installation", {195, 38})) a.manage(); ui::EndDisabled();
     ui::Dummy({0, 12}); hint("raylib 5.5\nImGui 1.92.5 docking\nrlImGui Raylib_5_5");
     ui::EndChild(); ui::SameLine();
     ui::BeginGroup();
@@ -750,7 +831,7 @@ void draw(App& a) {
                 }
                 ui::EndCombo();
             }
-            hint("Stable releases with Harmonic or Jetty support. Unsupported simulator/payload choices are cleared when changing PX4.");
+            hint("Stable releases with Harmonic or Jetty support. Unsupported simulator choices are cleared when changing PX4.");
             if (!a.installedPx4.empty() && a.installedPx4 != a.s.px4().version)
                 hint(("This workspace uses PX4 " + a.installedPx4 + ". Uninstall the managed workspace before installing a different PX4 version.").c_str());
         }
@@ -765,7 +846,7 @@ void draw(App& a) {
     }
     if (!a.error.empty()) { ui::Dummy({0, 14}); ui::PushStyleColor(ImGuiCol_Text, amber); ui::TextWrapped("%s", a.error.c_str()); ui::PopStyleColor(); }
     ui::EndChild(); ui::Dummy({0, 9});
-    bool busy = a.worker.running() || a.picker.running();
+    bool busy = a.worker.running() || a.picker.running() || a.modelsBusy();
     ui::BeginDisabled(busy || a.step == 0);
     if (ui::Button(a.step >= 7 ? "← Selection" : "← Back", {145, 42})) {
         if (a.step >= 7) a.returnToSelection(); else a.back();
@@ -800,6 +881,13 @@ void draw(App& a) {
         if (ui::Button("Keep open")) ui::CloseCurrentPopup();
         ui::SameLine();
         if (ui::Button("Stop and wait")) { a.worker.cancel(); ui::CloseCurrentPopup(); }
+        ui::EndPopup();
+    }
+    if (a.editorCloseRequested) { ui::OpenPopup("Model editor is open"); a.editorCloseRequested = false; }
+    if (ui::BeginPopupModal("Model editor is open", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ui::TextUnformatted("Save your changes and close Xovium Model Editor first.\nThe installer will refresh the model library when it closes.");
+        if (ui::Button("Keep installer open")) ui::CloseCurrentPopup();
+        if (!a.modelEditor.running()) ui::CloseCurrentPopup();
         ui::EndPopup();
     }
     authenticationPanel(a);
@@ -838,7 +926,11 @@ int main(int argc, char** argv) {
     theme(); rlImGuiEndInitImGui();
     app.defaults();
     while (true) {
-        if (WindowShouldClose()) { if (app.worker.running() && (app.job == Job::Install || app.job == Job::Remove)) app.closeRequested = true; else break; }
+        if (WindowShouldClose()) {
+            if (app.modelEditor.running()) app.editorCloseRequested = true;
+            else if (app.worker.running() && (app.job == Job::Install || app.job == Job::Remove)) app.closeRequested = true;
+            else break;
+        }
         app.poll();
         BeginDrawing(); ClearBackground({16, 20, 27, 255}); rlImGuiBegin(); draw(app); rlImGuiEnd(); EndDrawing();
     }

@@ -11,6 +11,7 @@ ISAAC_VERSION = "6.1.0.0"
 PUBLIC = ("px4", "qgc", "flightgear", "unreal-engine", "isaac", "sih", "sih-core",
           "gazebo-jetty", "gazebo-harmonic", "gazebo-plugins", "mavlink-router")
 BUILD = "build-essential ccache cmake file git libssl-dev libxml2-dev libxml2-utils ninja-build pkg-config python3-dev python3-venv rsync unzip zip libassimp-dev libpng-dev libarchive-dev libtinyxml2-dev python3-numpy".split()
+MODEL_EDITOR_PACKAGES = BUILD + "libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev".split()
 GST = "libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav".split()
 GAZEBO_BUILD = ["libopencv-dev", "libeigen3-dev"] + GST
 PACKAGES = {
@@ -53,6 +54,9 @@ def packages_for(plan, backend):
     packages = {"ca-certificates", "curl"}
     for name in plan:
         packages.update(PACKAGES[name])
+    if set(plan) & {'px4', 'flightgear', 'isaac', 'sih', 'sih-core', 'unreal-engine',
+                    'gazebo-harmonic', 'gazebo-jetty', 'gazebo-plugins'}:
+        packages.update(MODEL_EDITOR_PACKAGES)
     if 'unreal-engine' in plan:
         packages.update(['blender', 'libcurl4-openssl-dev', 'libopencv-dev', 'libjpeg-dev'])
     if "gazebo-plugins" in plan:

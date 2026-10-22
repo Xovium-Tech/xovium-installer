@@ -25,12 +25,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Install GUI build prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             build-essential cmake git pkg-config python3.12 util-linux zenity xdg-utils \
+            libassimp-dev libpng-dev libtinyxml2-dev libarchive-dev \
             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
 
       - name: Create and extract the source ZIP
@@ -49,14 +51,14 @@ jobs:
           archive = Path(os.environ['RUNNER_TEMP']) / (name + '.zip')
           subprocess.run(['git', 'archive', '--format=zip', '--prefix=' + name + '/', '-o', str(archive), 'HEAD'], check=True)
           destination = Path(os.environ['RUNNER_TEMP']) / 'source-archive'
-          required = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app/bootstrap.py', 'backend/xovium_installer.py'}
-          resources = {'.sdf', '.usd', '.usda', '.usdc', '.xml', '.dae', '.ac', '.obj', '.fbx', '.mtl', '.png', '.jpg', '.jpeg', '.tga', '.dds', '.webp', '.exr', '.hdr'}
+          required = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app/bootstrap.py', 'backend/xovium_installer.py', '.gitmodules', 'backend/editor-source.json'}
+          resources = {'.sdf', '.usd', '.usda', '.usdc', '.xml', '.dae', '.ac', '.obj', '.fbx', '.mtl', '.png', '.jpg', '.jpeg', '.tga', '.dds', '.webp', '.exr', '.hdr', '.xovmodel'}
           tracked = subprocess.check_output(['git', 'ls-files', '-z', 'backend/assets']).decode().split('\0')
           required.update(path for path in tracked if path and Path(path).suffix.lower() in resources)
           with zipfile.ZipFile(archive) as zipped:
               names = {item.filename.removeprefix(name + '/') for item in zipped.infolist() if not item.is_dir()}
               assert required <= names, 'Source ZIP is missing required files: ' + str(sorted(required - names))
-              allowed = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app', 'backend'}
+              allowed = {'CMakeLists.txt', 'install.sh', 'LICENSE', 'README.md', 'THIRD_PARTY.md', 'app', 'backend', '.gitmodules', 'tools'}
               excluded = {'.github', '.build', 'build', 'dist', 'cache', '__pycache__', 'tests', 'test', 'docs', 'examples', 'screenshots', 'videos', 'Binaries', 'Intermediate', 'Saved'}
               for path in names:
                   parts = PurePosixPath(path).parts
@@ -110,3 +112,34 @@ jobs:
           ./install.sh --build-only
           test -x .build/cmake/xovium-installer
           test -x .build/cmake/xovium-askpass
+
+      - name: Verify and build the linked model editor
+        working-directory: ${{ env.SOURCE_DIR }}
+        run: |
+          python3 -B - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+          data = json.loads(Path('backend/editor-source.json').read_text())
+          head = subprocess.check_output(['git', '-C', data['path'], 'rev-parse', 'HEAD'], text=True).strip()
+          assert head == data['revision'], 'Archive fallback fetched the wrong editor revision'
+          PY
+          tools/xovium-model-editor/build.sh
+          tools/xovium-model-editor/run.sh --cli --version
+
+      - name: Inspect bundled vehicle cards without installing simulators
+        working-directory: ${{ env.SOURCE_DIR }}
+        run: |
+          cards_dir="$(dirname "$GITHUB_WORKSPACE")/xov-tests/model-cards-ci"
+          mkdir -p "$cards_dir"
+          XOVIUM_KIT_ROOT="$PWD" python3 -B backend/wizard.py --model-info --prefix "$cards_dir/xovium" > "$cards_dir/cards.txt"
+          python3 -B - "$cards_dir/xovium" <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'backend')
+          from xovium.model_library import info
+          cards = info(Path.cwd(), sys.argv[1])['models']
+          assert len(cards) == 2 and all(card['available'] and card['editable'] for card in cards)
+          assert all(card['sensors'] and card['plugins'] for card in cards)
+          PY
+          test ! -e "$cards_dir/xovium"

@@ -110,12 +110,22 @@ def main():
     parser = argparse.ArgumentParser()
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--defaults', action='store_true')
+    modes.add_argument('--model-info', action='store_true')
+    modes.add_argument('--edit-model', choices=('cessna', 'rover'))
+    parser.add_argument('--prefix', help='Installation path for model information/editing')
     modes.add_argument('--preview', metavar='REQUEST')
     modes.add_argument('--install', metavar='REQUEST')
     modes.add_argument('--uninstall', action='store_true')
     modes.add_argument('--uninstall-preview', action='store_true')
     options = parser.parse_args()
-    if options.defaults:
+    if options.prefix and not (options.model_info or options.edit_model):
+        parser.error('--prefix is used with --model-info or --edit-model')
+    if options.model_info or options.edit_model:
+        from xovium import model_library
+        data = (model_library.edit(cli.ROOT, options.edit_model, options.prefix) if options.edit_model
+                else model_library.info(cli.ROOT, options.prefix))
+        model_library.print_info(data)
+    elif options.defaults:
         prefix = location(cli.ROOT)
         print(prefix)
         accepted = False

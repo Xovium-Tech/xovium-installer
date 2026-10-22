@@ -3,6 +3,7 @@
 *.sh.in text eol=lf
 *.py text eol=lf
 *.png binary
+*.xovmodel binary
 /backend/assets/patches/*.patch -whitespace
 
 # Unreal requires these C# build rules; omit configuration from language stats.
@@ -21,6 +22,8 @@
 /THIRD_PARTY.md -export-ignore
 /app -export-ignore
 /backend -export-ignore
+/.gitmodules -export-ignore
+/tools -export-ignore
 
 # Development metadata, documentation media and examples are not release inputs.
 **/.gitignore export-ignore
