@@ -190,6 +190,12 @@ class Context:
         lines += [f"export {k}={shlex.quote(str(v))}" for k, v in variables.items()]
         if cwd:
             lines.append("cd -- " + shlex.quote(str(cwd)))
+        if name in ('px4-gazebo', 'isaac', 'isaac-px4', 'sih-view', 'sih-px4',
+                    'flightgear', 'flightgear-px4', 'unreal', 'unreal-px4'):
+            # Apply the session model after the saved environment. Keep the
+            # preset/user argument boundary so explicit simulator flags survive.
+            command = ['python3', '-B', self.prefix / 'scripts/lib/session-model.py',
+                       'launch', name, str(len(command)), *command]
         lines.append("exec " + shlex.join([str(x) for x in command]) + ' "$@"')
         path.write_text("\n".join(lines) + "\n")
         path.chmod(0o755)

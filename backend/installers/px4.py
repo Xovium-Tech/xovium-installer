@@ -158,17 +158,11 @@ def flightgear_launcher(ctx):
     model = item['model_base'] if item['model'] == 'custom' else item['model']
     _, extra = launch_options(ctx, 'flightgear')
     env = {**environment(ctx), "FG_HOME": base / "runtime", "XOVIUM_FG_BRIDGE": bridge,
+           "XOVIUM_FG_MODEL": 'rascal-electric' if model in ('rc_cessna', 'r1_rover') else model,
            "XOVIUM_ROVER_BRIDGE": ctx.prefix / "simulation/sih/bridge",
            "XOVIUM_FG_ROVER_LAUNCHER": bridge / "FG_rover.py",
            "FG_SCENERY": f"{base}/worlds:/usr/share/games/flightgear/Scenery", **extra}
     env.pop('DONT_RUN', None)
-    if model == 'r1_rover':
-        env.update({"PX4_BUILD": source / "build/px4_sitl_default", "XOVIUM_VEHICLE": "r1_rover",
-                    "XOVIUM_FG_AIRCRAFT": extra.get("XOVIUM_FG_AIRCRAFT", base / "models/r1_rover/R1-set.xml")})
-        return ctx.launcher('flightgear', ['python3', ctx.prefix / 'simulation/sih/bridge/run_rover.py', '--flightgear'], env)
-    if model == 'rc_cessna':
-        model = 'rascal-electric'
-        env['XOVIUM_FG_AIRCRAFT'] = extra.get('XOVIUM_FG_AIRCRAFT', base / 'models/rc_cessna/Cessna-set.xml')
-        env['XOVIUM_VEHICLE'] = 'rc_cessna'
-    return ctx.launcher("flightgear", ["bash", bridge / "sitl_run.sh", px4, model, source, build],
-                        env=env)
+    # Session selection is applied after these saved defaults. Choose the
+    # physics/PX4 runner only then, so both vehicle families remain available.
+    return ctx.launcher("flightgear", ["bash", ctx.prefix / "scripts/lib/flightgear.sh", px4, source], env=env)

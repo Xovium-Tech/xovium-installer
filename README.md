@@ -64,14 +64,19 @@ XOVIUM_PREFIX=$(./install.sh --cli --print-prefix)
 "$XOVIUM_PREFIX/scripts/run.sh"
 ```
 
-Or launch one directly:
+After selecting the simulator, choose a model for that session. Enter keeps the installed default; `q` cancels. The menu includes Cessna, rover, and your `.xovmodel` files from `shared/models`. Gazebo also lists installed PX4 models with matching airframes.
+
+Or choose both directly:
 
 ```bash
-"$XOVIUM_PREFIX/scripts/run.sh" gazebo-harmonic --qgc
-"$XOVIUM_PREFIX/scripts/run.sh" sih --no-qgc
+"$XOVIUM_PREFIX/scripts/run.sh" gazebo-harmonic --model cessna --qgc
+"$XOVIUM_PREFIX/scripts/run.sh" sih --model rover --no-qgc
+"$XOVIUM_PREFIX/scripts/run.sh" isaac --list-models
 ```
 
-The wizard offers **Baylands** or **dynamic_terrain**, and **Cessna**, **rover**, or **your own model**. Each choice applies to every installed simulator, including simulators retained from an earlier installation. PX4's simulator-specific bundled assets remain available in its source tree. Telemetry ports can be changed under MAVLink Router → Advanced.
+`--model MODEL_KEY` skips the model prompt. Without a terminal, the launcher uses the installed default unless `--model` is supplied. Session choices leave the saved installation settings unchanged.
+
+The wizard offers **Baylands** or **dynamic_terrain**, and **Cessna**, **rover**, or **your own model**. Each choice supplies the default for every installed simulator, including simulators retained from an earlier installation. PX4's simulator-specific bundled assets remain available in its source tree. Telemetry ports can be changed under MAVLink Router → Advanced.
 
 ### Manage or remove an installation
 
@@ -123,7 +128,7 @@ Baylands is downloaded once from pinned Gazebo Fuel releases with SHA-256 verifi
 
 Isaac streams surrounding terrain while physics continues over loaded ground. It waits at startup, or when collision terrain near the vehicle is missing; distant tiles do not pause the simulation. Nearby tiles take priority, and scene changes are spread across frames.
 
-Open `shared/models/cessna/model.xovmodel` or `shared/models/rover/model.xovmodel` in [Xovium Model Editor](https://github.com/Xovium-Tech/xovium-model-editor), edit it, and save to the same path. Launch Xovium normally; conversion happens before simulator/PX4 processes start. Extra bundles can live in their own folders under `shared/models`; they are converted into the simulator's model library too. To select a different vehicle for launch, choose it as the installer's custom model.
+Open `shared/models/cessna/model.xovmodel` or `shared/models/rover/model.xovmodel` in [Xovium Model Editor](https://github.com/Xovium-Tech/xovium-model-editor), edit it, and save to the same path. Launch Xovium normally; conversion happens before simulator/PX4 processes start. Extra bundles can live in their own folders under `shared/models`; they appear in the launcher's model menu and are converted into the simulator's model library too. Use the model key shown by `--list-models` with `--model` for scripted launches. Custom bundles use the existing fixed-wing or rover physics adapter selected by their vehicle type.
 
 The installed editor runs independently of the installer checkout:
 

@@ -4,11 +4,15 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/lib/common.sh"
 usage() {
     cat <<'EOF'
 Usage: scripts/run.sh SIMULATOR_OR_NUMBER [--no-qgc | --qgc] [--headless] [--dry-run]
-                      [--router | --no-router] [--output auto|tabs|console|files] [--list] [--models] [-- SIMULATOR_ARGUMENTS...]
+                      [--model MODEL] [--list-models] [--router | --no-router]
+                      [--output auto|tabs|console|files] [--list] [--models] [-- SIMULATOR_ARGUMENTS...]
 Simulators: 1 gazebo-jetty, 2 gazebo-harmonic, 3 flightgear, 4 isaac, 5 sih, 6 unreal-engine
 Examples: ./run.sh gazebo-jetty --qgc
           ./qgc/run.sh                 (QGC on its own)
 Names and numbers work both as command arguments and in the interactive menu.
+After choosing a simulator, choose a model for this session (Enter uses the saved default).
+--model cessna|rover|MODEL_KEY skips the model prompt; --list-models lists available choices.
+Without a terminal, the saved model is used unless --model is supplied.
 --list shows which simulators are installed without starting anything.
 Starts the simulator and PX4 together, plus QGC when installed.
 Ctrl-C or a simulator/PX4 exit stops this session. Closing QGC leaves it running.
@@ -50,7 +54,7 @@ show_menu() {
         printf '  %s) %-17s [%s]\n' "$((i + 1))" "$name" "$status"
     done
 }
-simulator='' qgc=auto headless=0 dry=0 router='' output=''
+simulator='' qgc=auto headless=0 dry=0 router='' output='' model='' list_models=0
 extra=()
 while (( $# )); do
     case "$1" in
@@ -64,6 +68,10 @@ while (( $# )); do
         --qgc) qgc=yes; shift ;;
         --headless) headless=1; shift ;;
         --dry-run) dry=1; shift ;;
+        --model)
+            (( $# >= 2 )) && [[ -n $2 && $2 != --* ]] || xovium_fail '--model needs cessna, rover or a model key.'
+            model=$2; shift 2 ;;
+        --list-models) list_models=1; shift ;;
         --output)
             (( $# >= 2 )) || xovium_fail '--output needs auto, tabs, console or files.'
             output=$2; shift 2 ;;
@@ -124,6 +132,18 @@ case "$simulator" in
 esac
 xovium_require "$main"
 case "$simulator" in isaac) xovium_require isaac-px4 ;; sih) xovium_require sih-px4 ;; esac
+model_options=(select --simulator "$simulator")
+if (( list_models )); then
+    exec python3 -B "$XOVIUM_ROOT/scripts/lib/session-model.py" list --simulator "$simulator"
+elif [[ -n $model ]]; then
+    model_options+=(--model "$model")
+elif [[ -t 0 ]]; then
+    model_options+=(--interactive)
+fi
+model=$(python3 -B "$XOVIUM_ROOT/scripts/lib/session-model.py" "${model_options[@]}")
+[[ -n $model ]] || exit 0
+export XOVIUM_SESSION_MODEL=$model XOVIUM_SESSION_SIMULATOR=$simulator
+printf 'Model: %s (this session)\n' "$model"
 if [[ $qgc == yes ]]; then xovium_require qgc; fi
 if [[ $qgc == auto ]]; then
     if [[ -x "$XOVIUM_PREFIX/scripts/.commands/qgc" ]]; then qgc=yes; else qgc=no; fi
