@@ -19,12 +19,12 @@ PACKAGES = {
     "qgc": "libfuse2t64 libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-render-util0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-shape0 libxcb-xkb1 libopengl0 libpulse0".split() + GST,
     "flightgear": ["flightgear", "xdotool", "libeigen3-dev", "libcurl4-openssl-dev", "libpng-dev"] + BUILD,
     "isaac-runtime": "python3.12 python3.12-venv libegl1 libgl1 libvulkan1 libxt6t64 libxrandr2 libxi6 libxrender1 libxkbcommon0 libnss3 libasound2t64".split(),
-    "isaac": BUILD + GST + "7zip curl libcurl4-openssl-dev libpng-dev python3.12-dev".split(),
+    "isaac": BUILD + GST + "7zip curl libcurl4-openssl-dev libpng-dev libjpeg-dev python3.12-dev".split(),
     "sih": [], "sih-core": ["libcurl4-openssl-dev", "libpng-dev"],
     "unreal-engine": BUILD + "bc curl git-lfs xz-utils libvulkan1 vulkan-tools mesa-vulkan-drivers libgl1 libegl1 libsdl2-2.0-0 libnss3 libnspr4 libgbm1 libasound2t64 libpulse0 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libxss1 libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxkbcommon-x11-0 libgtk-3-0t64 libfreetype6 libfontconfig1 libatk1.0-0t64 libatk-bridge2.0-0t64 libdrm2 libglu1-mesa".split(),
-    "gazebo-harmonic": ["gz-harmonic", "libgz-transport13-dev", "libgz-sim8-dev"] + GAZEBO_BUILD,
-    "gazebo-jetty": ["gz-jetty", "libgz-transport15-dev", "libgz-sim10-dev"] + GAZEBO_BUILD,
-    "gazebo-plugins": BUILD + GST + "libcurl4-openssl-dev libopencv-dev libprotobuf-dev protobuf-compiler".split(),
+    "gazebo-harmonic": ["gz-harmonic", "libgz-transport13-dev", "libgz-sim8-dev", "libgz-plugin2-dev", "libgz-rendering8-ogre2-dev"] + GAZEBO_BUILD,
+    "gazebo-jetty": ["gz-jetty", "libgz-transport15-dev", "libgz-sim10-dev", "libgz-plugin4-dev", "libgz-rendering10-ogre2-dev"] + GAZEBO_BUILD,
+    "gazebo-plugins": BUILD + GST + "libcurl4-openssl-dev libopencv-dev libjpeg-dev libprotobuf-dev protobuf-compiler".split(),
     "mavlink-router": "git meson ninja-build pkg-config gcc g++ libsystemd-dev".split(),
 }
 

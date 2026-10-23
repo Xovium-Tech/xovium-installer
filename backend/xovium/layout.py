@@ -86,6 +86,30 @@ def refresh(ctx):
         px4.flightgear_launcher(ctx)
     for distro in ("harmonic", "jetty"):
         if installed.get("gazebo-" + distro, {}).get("status") == "installed":
+            from xovium.gazebo_cameras import configure_file, configure_model_file
+            from xovium import model_tool
+            model_tool.adopt(ctx)
+            cameras = gazebo.camera_for(ctx, distro)
+            base = ctx.prefix / f"simulation/gazebo-{distro}"
+            configure_file(ctx, base / 'bridge/server.config')
+            for path in (base / 'models').glob('*/model.sdf'):
+                configure_model_file(ctx, path)
+            for path in (base / 'worlds').glob('*.sdf'):
+                configure_file(ctx, path)
+            installed['gazebo-' + distro]['artifacts'] = sorted(
+                set(installed['gazebo-' + distro].get('artifacts', [])) |
+                {str(path.relative_to(ctx.prefix)) for path in cameras})
+            ctx.save()
+            terrain = ctx.prefix / f"simulation/gazebo-{distro}/plugins/terrain"
+            if (terrain / "source").is_dir() or (terrain / "source-bundled").is_dir():
+                artifacts = gazebo.terrain_for(ctx, distro)
+                if not all(path.is_file() and path.stat().st_size for path in artifacts):
+                    raise Error(f"Gazebo {distro} terrain refresh did not produce its required libraries.")
+                component = installed.get("gazebo-plugins")
+                if component is not None:
+                    component["artifacts"] = sorted(set(component.get("artifacts", [])) |
+                                                    {str(path.relative_to(ctx.prefix)) for path in artifacts})
+                    ctx.save()
             gazebo.launchers(ctx, distro)
     if installed.get("gazebo-" + ctx.config["backend"], {}).get("status") == "installed":
         gazebo.px4_launcher(ctx)
@@ -102,7 +126,11 @@ def refresh(ctx):
         ctx.state["components"]["sih"]["artifacts"] = [str(path.relative_to(ctx.prefix)) for path in artifacts]
         ctx.save()
     if installed.get('unreal-engine', {}).get('status') == 'installed':
-        apps.unreal(ctx)
+        artifacts = apps.unreal(ctx)
+        if not all(path.is_file() and path.stat().st_size for path in artifacts):
+            raise Error("Native Unreal refresh did not produce its required artifacts.")
+        installed['unreal-engine']['artifacts'] = [str(path.relative_to(ctx.prefix)) for path in artifacts]
+        ctx.save()
     if installed.get('sih-core', {}).get('status') == 'installed' and installed.get('sih', {}).get('status') != 'installed':
         apps.sih_core(ctx)
     if installed.get('flightgear', {}).get('status') == 'installed':

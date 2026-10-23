@@ -23,6 +23,7 @@
 
 APX4GameMode::APX4GameMode()
 {
+    PrimaryActorTick.bCanEverTick = true;
     DefaultPawnClass = nullptr;
     bStartPlayersAsSpectators = false;
 }
@@ -36,21 +37,40 @@ void APX4GameMode::BeginPlay()
     FString TerrainConfig;
     const bool bDynamic=FParse::Value(FCommandLine::Get(),TEXT("PX4TerrainConfig="),TerrainConfig);
     if (bDynamic || !FParse::Param(FCommandLine::Get(), TEXT("PX4CustomWorld"))) BuildEnvironment();
-    APX4Terrain* StreamedTerrain=nullptr;
+    StreamedTerrain=nullptr;
     if (bDynamic)
     {
         StreamedTerrain=GetWorld()->SpawnActor<APX4Terrain>();
         if (!StreamedTerrain || !StreamedTerrain->LoadSharedConfig(TerrainConfig))
         { UE_LOG(LogTemp,Error,TEXT("Invalid shared dynamic terrain configuration: %s"),*TerrainConfig); FPlatformMisc::RequestExitWithStatus(false,1); return; }
         StreamedTerrain->RefreshTerrain();
-        const double Deadline=FPlatformTime::Seconds()+120;
-        FHitResult TerrainGround;
-        while (FPlatformTime::Seconds()<Deadline && !StreamedTerrain->TraceGround(FVector::ZeroVector,TerrainGround))
-        { StreamedTerrain->Tick(.05); FPlatformProcess::SleepNoStats(.05); }
-        if (!StreamedTerrain->TraceGround(FVector::ZeroVector,TerrainGround))
-        { UE_LOG(LogTemp,Error,TEXT("Shared dynamic terrain did not provide spawn collision within 120 seconds.")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
+        TerrainDeadline=FPlatformTime::Seconds()+120;
+        bWaitingForTerrain=true;
+        return;
     }
+    SpawnVehicle();
+}
 
+void APX4GameMode::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    if(!bWaitingForTerrain) return;
+    FHitResult Ground;
+    if(IsValid(StreamedTerrain)&&StreamedTerrain->TraceGround(FVector::ZeroVector,Ground))
+    {
+        bWaitingForTerrain=false;
+        SpawnVehicle();
+    }
+    else if(FPlatformTime::Seconds()>=TerrainDeadline)
+    {
+        bWaitingForTerrain=false;
+        UE_LOG(LogTemp,Error,TEXT("Shared dynamic terrain did not provide spawn collision within 120 seconds."));
+        FPlatformMisc::RequestExitWithStatus(false,1);
+    }
+}
+
+void APX4GameMode::SpawnVehicle()
+{
     FActorSpawnParameters Parameters;
     Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     FString Vehicle;

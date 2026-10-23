@@ -9,13 +9,10 @@ public class PX4Unreal : ModuleRules
         CppStandard = CppStandardVersion.Cpp20;
         bUseUnity = false;
         PublicDependencyModuleNames.AddRange(new[] {
-            "Core", "CoreUObject", "Engine", "PhysicsCore", "ProceduralMeshComponent", "Json", "RenderCore", "RHI", "ImageCore"
+            "Core", "CoreUObject", "Engine", "InputCore", "DynamicTerrain", "PhysicsCore", "ProceduralMeshComponent", "Json", "RenderCore", "RHI", "ImageCore"
         });
         string RepositoryRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../.."));
         PublicIncludePaths.Add(Path.Combine(RepositoryRoot, "native/include"));
-        string Terrain = Path.Combine(RepositoryRoot, "Unreal/Binaries/Linux/libxovium_terrain.so");
-        PublicAdditionalLibraries.Add(Terrain);
-        RuntimeDependencies.Add(Terrain);
         PublicSystemIncludePaths.Add(Path.Combine(RepositoryRoot, "ThirdParty/mavlink/include"));
         ExternalDependencies.Add(Path.Combine(RepositoryRoot, "native/src/mavlink_link.cpp"));
         if (Target.Platform != UnrealTargetPlatform.Linux)

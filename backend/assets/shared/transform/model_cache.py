@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 from model_adapters import prepare
+from camera_streams import configure as configure_camera_streams
 
 SIMULATORS = ('gazebo-jetty', 'gazebo-harmonic', 'isaac', 'sih', 'flightgear', 'unreal-engine')
 TARGETS = {name: 'gazebo' if name.startswith('gazebo-') else
@@ -112,7 +113,9 @@ def command(shared, *arguments):
 def converter_signature(shared, simulator):
     root, tool, helper = tool_paths(shared)
     files = [tool, helper, root / 'backend/sensors.json', Path(__file__).resolve(),
-             shared / 'transform/model_adapters.py']
+             shared / 'transform/model_adapters.py', shared / 'transform/camera_streams.py']
+    if simulator == 'flightgear':
+        files.append(shared / 'transform/geometry.py')
     templates = shared / 'transform/templates'
     files += sorted(p for p in templates.rglob('*') if p.is_file())
     if simulator == 'unreal-engine':
@@ -229,6 +232,7 @@ def prepare_all(shared, simulator, *, say=print):
                 command(shared, 'export', '--workspace', workspace, '--target', TARGETS[simulator], '--output', exported)
                 payload.mkdir()
                 prepare(shared, simulator, key, adapter, exported, payload)
+                configure_camera_streams(document, simulator, payload / key)
                 current = hashlib.sha256((digest(bundle) + converter_signature(shared, simulator) + key +
                     (digest(selection) if selection.is_file() else '')).encode()).hexdigest()
                 if current != signature:

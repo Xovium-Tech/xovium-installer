@@ -65,7 +65,7 @@ PHYSX_RUNTIME=("$ISAAC_ROOT"/extscache/omni.physx-110.3.2+*)
 shopt -u nullglob
 (( ${#PHYSX_RUNTIME[@]} == 1 )) || fail 'Expected exactly one Isaac PhysX 110.3.2 extension; this runtime requires different native interface validation.'
 
-PACKAGES=(build-essential cmake ninja-build pkg-config curl git ca-certificates 7zip libcurl4-openssl-dev libpng-dev python3.12-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly)
+PACKAGES=(build-essential cmake ninja-build pkg-config curl git ca-certificates 7zip libcurl4-openssl-dev libpng-dev libjpeg-dev python3.12-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly)
 MISSING=()
 NATIVE_ARCH=$(dpkg --print-architecture)
 for package in "${PACKAGES[@]}"; do
@@ -83,7 +83,7 @@ if (( ${#MISSING[@]} )); then
     sudo apt-get update
     sudo apt-get install --no-install-recommends -y "${MISSING[@]}"
 fi
-pkg-config --exists libcurl libpng gstreamer-1.0 gstreamer-app-1.0 || fail 'Native library development packages are incomplete.'
+pkg-config --exists libcurl libpng libjpeg gstreamer-1.0 gstreamer-app-1.0 || fail 'Native library development packages are incomplete.'
 
 download() {
     local url=$1 archive=$2 expected=$3 actual

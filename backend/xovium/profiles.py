@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 
 from xovium.core import Error
 from xovium import simulation_profiles as sp
+from xovium.gazebo_cameras import configure_systems
 
 MODELS = {'x500': 4001, 'rc_cessna': 4003, 'standard_vtol': 4004, 'r1_rover': 4009}
 FG_MODELS = sp.FLIGHTGEAR_MODELS
@@ -89,7 +90,9 @@ def model_profile(models, name, data):
                       'cache_dir': settings['cache_path'], 'static_zoom': settings['zoom'], 'dynamic_zoom': 'false',
                       'radius_tiles': settings['radius'], 'visual_geometry_zoom': settings['zoom'],
                       'visual_elevation_zoom': min(settings['zoom'], 15), 'visual_detail_zoom': settings['zoom'],
-                      'visual_radius_m': radius, 'visual_detail_radius_m': radius, 'visual_detail_mode': 'all'}
+                      'visual_radius_m': radius, 'visual_detail_radius_m': radius, 'visual_detail_mode': 'all',
+                      'visual_outer_radius_m': settings.get('visual_outer_radius_m', 2000000.0),
+                      'visual_activation_timeout_sec': 60.0}
             for key, value in values.items():
                 element = plugin.find(key)
                 if element is None: element = ET.SubElement(plugin, key)
@@ -134,6 +137,8 @@ def gazebo_settings(ctx, data):
 def custom_world(path):
     root = sp.sdf(path, 'world')
     root.find('world').set('name', 'xovium_custom')
+    if root.find('world').findall('plugin'):
+        configure_systems(root.find('world'))
     for uri in root.iter():
         if uri.tag not in ('uri', 'albedo_map', 'normal_map', 'roughness_map', 'metalness_map', 'emissive_map', 'light_map', 'diffuse', 'normal'):
             continue
@@ -156,9 +161,7 @@ def gazebo_profile(ctx, data, distro):
         profile['model_uri'] = 'model://custom' if 'shared_selection' in data else item['model_path']
     if item['dynamic_terrain']:
         profile['terrain_settings'] = sp.shared_terrain(ctx)
-        profile['terrain_snippet'] = base / f'plugins/terrain/source/examples/{distro}/plugin_snippet.sdf'
-        if not profile['terrain_snippet'].is_file():
-            raise Error(f'Dynamic terrain was selected for {distro}, but its plugin was not installed.')
+        profile['terrain_snippet'] = ctx.assets / 'gazebo/terrain-plugin.sdf'
     name = 'xovium_' + item['model']
     write_owned(ctx, f'{relative}/models/{name}/model.sdf', model_profile(base / 'models', name, profile))
     write_owned(ctx, f'{relative}/models/{name}/model.config',
@@ -169,6 +172,7 @@ def gazebo_profile(ctx, data, distro):
     plugins = root.find('plugins')
     if plugins is None:
         raise Error('Gazebo server configuration has no plugins section.')
+    configure_systems(plugins, server_config=True)
     for plugin in list(plugins):
         if 'dynamic-terrain' in plugin.get('filename', ''):
             plugins.remove(plugin)
@@ -195,6 +199,7 @@ def gazebo_profile(ctx, data, distro):
                 copy.attrib.pop('entity_name', None)
                 copy.attrib.pop('entity_type', None)
                 world.append(copy)
+        configure_systems(world)
         write_owned(ctx, relative + '/worlds/xovium_terrain.sdf', xml_text(world_root))
 
 

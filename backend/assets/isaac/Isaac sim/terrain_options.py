@@ -16,16 +16,20 @@ def options(path):
     lat, lon, alt = (origin[key] for key in ('latitude', 'longitude', 'altitude'))
     if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon, alt)):
         raise ValueError('Terrain origin must be finite')
-    if not -85 <= lat <= 85 or not -180 <= lon <= 180 or not -1000 <= alt <= 20000:
+    if not -80 <= lat <= 80 or not -180 <= lon <= 180 or not -1000 <= alt <= 20000:
         raise ValueError('Terrain origin is outside supported geographic bounds')
     zoom, radius = data['zoom'], data['radius']
-    if type(zoom) is not int or not 1 <= zoom <= 22 or type(radius) is not int or not 0 <= radius <= 8:
-        raise ValueError('Invalid terrain zoom/radius')
+    if type(zoom) is not int or not 1 <= zoom <= 20 or type(radius) is not int or not 1 <= radius <= 3:
+        raise ValueError('Isaac terrain requires zoom 1..20 and radius 1..3')
+    outer_radius = data.get('visual_outer_radius_m', 2000000.0)
+    if type(outer_radius) not in (int, float) or not math.isfinite(outer_radius) or not 0 <= outer_radius <= 2000000:
+        raise ValueError('Visual outer terrain radius must be finite and between 0 and 2000000 metres')
     cache = (path.parent / data['cache']).resolve()
     result = {
         '/px4/terrain/enabled': 'true', '/px4/terrain/source': 'xyz',
         '/px4/terrain/cacheDirectory': cache, '/px4/terrain/zoom': zoom,
         '/px4/terrain/radius': radius, '/px4/terrain/imageryExtension': data.get('imagery_extension', 'png'),
+        '/px4/terrain/visualOuterRadiusM': outer_radius,
         '/px4/terrain/imageryUrl': data['imagery_url'], '/px4/terrain/elevationUrl': data['elevation_url'],
     }
     for key, value in (('Latitude', lat), ('Longitude', lon), ('Altitude', alt)):

@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 from xovium.core import Error, digest
+from xovium.model_defaults import add_plane_cameras, plane_defaults_signature, upgrade_pristine_plane_cameras
 
 EDITOR_LAUNCHER = '''#!/usr/bin/env bash
 set -euo pipefail
@@ -122,7 +123,10 @@ def seed_bundles(ctx):
         base = shared / 'models' / folder
         source, bundle = base / 'source/model.sdf', base / 'model.xovmodel'
         if not source.is_file(): continue
-        signature = source_signature(source.parent)
+        source_base = source_signature(source.parent)
+        signature = source_base
+        if folder == 'cessna':
+            signature = hashlib.sha256((signature + plane_defaults_signature()).encode()).hexdigest()
         relative = bundle.relative_to(ctx.prefix).as_posix()
         previous = tracked.get(relative, {})
         if bundle.exists():
@@ -133,14 +137,22 @@ def seed_bundles(ctx):
         ctx.say('[models] Create portable shared model: ' + str(bundle))
         with tempfile.TemporaryDirectory(prefix='portable-', dir=shared / 'cache') as temporary:
             workspace = Path(temporary) / 'workspace'
-            cache.command(shared, 'import', source, '--workspace', workspace,
+            # A defaults-only upgrade starts from the pristine portable bundle
+            # so its existing sensor IDs, mesh assets and document stay intact.
+            unchanged_source = previous.get('source_base', previous.get('source')) == source_base
+            original = bundle if bundle.is_file() and unchanged_source else source
+            cache.command(shared, 'import', original, '--workspace', workspace,
                           '--mesh-helper', shared / 'transform/model-tool/bin/mesh-import')
             document_file = workspace / 'project.json'
             document = json.loads(document_file.read_text())
             if vehicle != 'custom': document['vehicle'] = vehicle
+            if folder == 'cessna':
+                # Existing bundles reach here only after exact ownership checks.
+                if original == bundle: upgrade_pristine_plane_cameras(document)
+                add_plane_cameras(document)
             document_file.write_text(json.dumps(document) + '\n')
             cache.command(shared, 'save', '--workspace', workspace, '--output', bundle)
-        tracked[relative] = dict(source=signature, bundle=digest(bundle))
+        tracked[relative] = dict(source=signature, source_base=source_base, bundle=digest(bundle))
         ctx.save()
     ctx.save()
 

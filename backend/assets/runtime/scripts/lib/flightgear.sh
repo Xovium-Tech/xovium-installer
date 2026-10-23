@@ -9,6 +9,25 @@ aircraft_px4=$1
 px4_source=$2
 shift 2
 
+# Camera selection belongs to FlightGear's view manager, not PX4's launcher.
+# The shared model descriptor resolves this stable name after initialization.
+px4_arguments=()
+while (( $# )); do
+    case "$1" in
+        --camera)
+            (( $# >= 2 )) || { printf 'Missing value for --camera (chase, front, bottom).\n' >&2; exit 2; }
+            case "$2" in
+                chase|front|bottom|onboard) ;;
+                *) printf 'Unknown FlightGear camera: %s (choose chase, front, bottom).\n' "$2" >&2; exit 2 ;;
+            esac
+            export FG_ARGS_ADD="${FG_ARGS_ADD:-} --prop:/sim/xovium/camera=$2"
+            shift 2
+            ;;
+        *) px4_arguments+=("$1"); shift ;;
+    esac
+done
+set -- "${px4_arguments[@]}"
+
 # The session-model launcher has already applied the chosen model's settings.
 # A saved installation may use either family, so its build cannot be reused
 # blindly when the next session chooses the other family.

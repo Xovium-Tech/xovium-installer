@@ -156,6 +156,7 @@ def launch(prefix, name, count, arguments):
             env['XOVIUM_FG_AIRCRAFT'] = str(base / 'models' / key / filename)
         elif simulator == 'unreal-engine':
             env['XOVIUM_UE_MODEL'] = f'/Game/Models/{key}/{key}.{key}'
+            env['XOVIUM_UE_CAMERA_SCENE'] = str(base / 'models' / key / 'scene.json')
     os.execvpe(command[0], [*command, *user], env)
 
 

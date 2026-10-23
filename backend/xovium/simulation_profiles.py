@@ -325,6 +325,11 @@ def shared_terrain(ctx):
         raise Error('Shared terrain origin is outside supported geographic bounds.')
     if type(data.get('zoom')) is not int or not 10 <= data['zoom'] <= 17 or type(data.get('radius')) is not int or not 1 <= data['radius'] <= 3:
         raise Error('Shared terrain zoom must be 10..17 and radius must be 1..3.')
+    outer_radius = data.get('visual_outer_radius_m', 2000000.0)
+    if type(outer_radius) not in (int, float) or not math.isfinite(outer_radius) or not 0 <= outer_radius <= 2000000:
+        raise Error('Shared visual outer terrain radius must be finite and between 0 and 2000000 metres.')
+    # Resolve the optional default in memory; preserve the user's manifest.
+    data['visual_outer_radius_m'] = outer_radius
     for key in ('imagery_url', 'elevation_url'):
         value = data.get(key)
         if not isinstance(value, str) or not value.startswith('https://') or not all('{' + axis + '}' in value for axis in ('x', 'y', 'z')) or any(c in value for c in '\r\n\0'):
@@ -386,6 +391,7 @@ def launch_options(ctx, name):
         if item['model'] in SHARED_MODELS or shared_custom:
             model = 'custom' if shared_custom else vehicle
             env['XOVIUM_UE_MODEL'] = f'/Game/Models/{model}/{model}.{model}'
+            env['XOVIUM_UE_CAMERA_SCENE'] = str(base / 'models' / model / 'scene.json')
         for kind in ('world', 'model'):
             if item[kind] == 'custom' and not (kind == 'model' and shared_custom):
                 _, package = unreal_content(Path(item[kind + '_path']))

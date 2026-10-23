@@ -5,6 +5,7 @@ from installers.px4 import environment
 from xovium.px4_compatibility import release
 from xovium.layout import internal_link, native_project, simulator, adapt_assets
 from xovium.simulation_profiles import launch_options
+from xovium.terrain_sources import install_source
 
 
 def qgc(ctx):
@@ -84,6 +85,9 @@ def bind_px4_release(ctx, project, relative):
 
 def isaac(ctx):
     project = native_project(ctx, "isaac/Isaac sim", "isaac")
+    terrain = install_source(ctx, "isaac", "simulation/isaac/bridge/dynamic-terrain")
+    # Register configuration/Python ownership before CMake stages native output.
+    ctx.copy_tree(terrain / "extensions", "simulation/isaac/plugins")
     adapt_assets(ctx, 'isaac-assets', project)
     bind_px4_release(ctx, project, 'build_native.sh')
     ctx.adapt_text(project / "run_isaac.sh", [("$SHARED_ROOT/.venv-isaac", "$SHARED_ROOT/runtime")])
@@ -95,7 +99,8 @@ def isaac(ctx):
     return [px4, view, project / "bin/isaac_native", project / "bin/px4_launcher",
             ctx.prefix / "simulation/isaac/plugins/px4.isaac.flight/bin/libpx4.isaac.flight.plugin.so",
             ctx.prefix / "simulation/isaac/plugins/px4.isaac.camera/bin/libpx4.isaac.camera.plugin.so",
-            ctx.prefix / "simulation/isaac/plugins/px4.isaac.terrain/bin/libpx4.isaac.terrain.plugin.so"]
+            ctx.prefix / "simulation/isaac/plugins/px4.isaac.terrain/bin/libpx4.isaac.terrain.plugin.so",
+            ctx.prefix / "simulation/isaac/plugins/xovium.dynamic_terrain/bin/libxovium.dynamic_terrain.plugin.so"]
 
 
 def unreal(ctx):
@@ -106,6 +111,7 @@ def unreal(ctx):
     bind_px4_release(ctx, project, 'scripts/run_px4.sh')
     for folder, upstream in [("models", "Content/Models"), ("worlds", "Content/Worlds"), ("plugins", "Plugins")]:
         internal_link(ctx, f"simulation/unreal-engine/bridge/Unreal/{upstream}", f"simulation/unreal-engine/{folder}")
+    install_source(ctx, "unreal", "simulation/unreal-engine/plugins/DynamicTerrain")
     engine = ctx.managed("simulation/unreal-engine/engine")
     env = environment(ctx)
     env.pop("DONT_RUN", None)
@@ -131,7 +137,10 @@ def unreal(ctx):
     ctx.run("bash", project / "scripts/generate_mavlink.sh", env=env)
     ctx.run("bash", project / "scripts/build_unreal.sh", env=env)
     launchers = unreal_launchers(ctx)
-    return [editor, project / "Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so", *launchers]
+    return [editor, project / "Unreal/Binaries/Linux/libUnrealEditor-PX4Unreal.so",
+            ctx.prefix / "simulation/unreal-engine/plugins/DynamicTerrain/Binaries/Linux/libxovium_dynamic_terrain.so",
+            ctx.prefix / "simulation/unreal-engine/plugins/DynamicTerrain/Binaries/Linux/libUnrealEditor-DynamicTerrain.so",
+            *launchers]
 
 
 def router(ctx):

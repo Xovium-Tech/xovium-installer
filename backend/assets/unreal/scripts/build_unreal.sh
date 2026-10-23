@@ -27,9 +27,9 @@ fi
 if (( generate_project )); then
     bash "$UE_ROOT/Engine/Build/BatchFiles/Linux/GenerateProjectFiles.sh" -project="$UE_PROJECT" -game -engine
 fi
-cmake -S "$PROJECT_ROOT/native/terrain" -B "$PROJECT_ROOT/native/terrain/build" -DCMAKE_BUILD_TYPE=Release
-cmake --build "$PROJECT_ROOT/native/terrain/build" --parallel "$JOBS"
-cmake --install "$PROJECT_ROOT/native/terrain/build" --prefix "$PROJECT_ROOT/Unreal/Binaries/Linux"
+terrain_plugin="$PROJECT_ROOT/Unreal/Plugins/DynamicTerrain"
+[[ -f "$terrain_plugin/DynamicTerrain.uplugin" ]] || die "DynamicTerrain plugin missing: $terrain_plugin"
+bash "$terrain_plugin/scripts/build_native.sh"
 exec bash "$UE_ROOT/Engine/Build/BatchFiles/Linux/Build.sh" \
     PX4UnrealEditor Linux Development "$UE_PROJECT" \
     -WaitMutex -NoHotReloadFromIDE "-MaxParallelActions=$JOBS"

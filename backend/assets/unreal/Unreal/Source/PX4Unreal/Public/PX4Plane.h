@@ -23,7 +23,13 @@ public:
     APX4Plane();
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
     void PostPhysicsTick(float DeltaSeconds);
+    UFUNCTION(BlueprintCallable, Category="Xovium|Cameras")
+    bool LoadCameraScene(const FString& ScenePath);
+    UFUNCTION(BlueprintCallable, Category="Xovium|Cameras")
+    bool SelectCamera(FName Name);
 
 protected:
     virtual void BeginPlay() override;
@@ -36,10 +42,16 @@ private:
     void ConfigureRover();
     void ApplyRoverForces();
     void Fail(const FString& Reason);
+    void ChaseView();
+    void FrontView();
+    void BottomView();
 
     UPROPERTY() TObjectPtr<UBoxComponent> Body;
     UPROPERTY() TObjectPtr<USpringArmComponent> CameraArm;
     UPROPERTY() TObjectPtr<UCameraComponent> Camera;
+    UPROPERTY() TMap<FName, TObjectPtr<UCameraComponent>> OnboardCameras;
+    TMap<FName, float> CameraNearClip;
+    FName SelectedCamera = TEXT("chase");
     UPROPERTY() TObjectPtr<UPX4PostPhysicsComponent> SensorTick;
     UPROPERTY() TObjectPtr<UPhysicalMaterial> GroundContactMaterial;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> Visuals;

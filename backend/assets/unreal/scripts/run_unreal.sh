@@ -4,11 +4,13 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() {
     cat <<'EOF'
 Usage: ./scripts/run_unreal.sh [--headless | --offscreen] [--speed N] [--hz N]
-                               [--instance N] [--editor] [-- UE_ARGUMENTS...]
+                               [--instance N] [--camera NAME] [--editor] [-- UE_ARGUMENTS...]
 Run the compiled fixed-wing simulator; start ./run_px4.sh in another terminal.
 Visible simulation starts in a 1280x720 window.
 --headless   Disable rendering with -nullrhi (no camera images).
 --offscreen  Vulkan rendering without a visible window.
+--camera NAME  Initial view: chase (default), front, bottom, or an authored camera name.
+               During simulation: 1 chase, 2 front, 3 bottom.
 --speed N    Wall-clock target; 1 real time, 0 unlimited, e.g. 5 five times real time.
 --hz N       Physics/sensor rate; currently must be 250 for PX4 lockstep.
 R1 rover runs at real time with cached 100 Hz controls and 250 Hz sensors.
@@ -18,7 +20,7 @@ EOF
 }
 for arg in "$@"; do [[ $arg != -h && $arg != --help ]] || { usage; exit 0; }; done
 load_config
-render_mode=normal editor=0
+render_mode=normal editor=0 camera_view=chase
 extra=()
 while (( $# )); do
     case "$1" in
@@ -26,6 +28,7 @@ while (( $# )); do
         --speed) require_value "$@"; SIM_SPEED=$2; shift 2 ;;
         --hz) require_value "$@"; SIM_HZ=$2; shift 2 ;;
         --instance) require_value "$@"; PX4_INSTANCE=$2; shift 2 ;;
+        --camera) require_value "$@"; camera_view=$2; shift 2 ;;
         --editor) editor=1; shift ;;
         --) shift; extra=("$@"); break ;;
         *) die "Unknown option: $1" ;;
@@ -48,6 +51,8 @@ args=("$UE_PROJECT" "${XOVIUM_UE_WORLD:-/Engine/Maps/Entry}?game=/Script/PX4Unre
 args+=(-game)
 [[ -z ${XOVIUM_UE_WORLD:-} ]] || args+=(-PX4CustomWorld)
 [[ -z ${XOVIUM_UE_MODEL:-} ]] || args+=("-PX4Model=$XOVIUM_UE_MODEL")
+[[ -z ${XOVIUM_UE_CAMERA_SCENE:-} ]] || args+=("-PX4CameraScene=$XOVIUM_UE_CAMERA_SCENE")
+args+=("-PX4Camera=$camera_view")
 case "$render_mode" in
     headless) args+=(-nullrhi) ;;
     offscreen) args+=(-RenderOffscreen -vulkan) ;;

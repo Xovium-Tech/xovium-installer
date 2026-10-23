@@ -18,6 +18,10 @@
     {
       "Name": "ProceduralMeshComponent",
       "Enabled": true
+    },
+    {
+      "Name": "DynamicTerrain",
+      "Enabled": true
     }
   ]
 }

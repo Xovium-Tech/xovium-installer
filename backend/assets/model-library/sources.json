@@ -4,7 +4,7 @@
   "models": {
     "cessna": {
       "file": "cessna.xovmodel",
-      "sha256": "689b8ca829303b25a67f2cbfea9c27aebc984ce8f914d1c8a667bd7f690bb059"
+      "sha256": "6fa5f8070318592bb1d8099ecddaea14347bab601a557be4529f96047efad832"
     },
     "rover": {
       "file": "rover.xovmodel",

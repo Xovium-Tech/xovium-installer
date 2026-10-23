@@ -55,7 +55,7 @@ Open the wizard:
 4. On **Sensors**, inspect the Cessna and rover cards. Each lists the sensors and plugins attached to that model. **Change model** opens it in the editor; save and close the editor to refresh the card.
 5. Review the installation folder and disk requirements, then click **Start downloading**.
 
-The default installation folder is `xovium`, beside the installer folder. You can change it in the wizard. Before installation, edited models are staged in the installer kit for that installation folder; choose the destination before editing models. Untouched models continue to come from the selected PX4 release. After installation, **Change model** opens the installed `.xovmodel` directly. Rerunning the installer reuses completed components; unchecking a component does not uninstall it.
+The default installation folder is `xovium`, beside the installer folder. You can change it in the wizard. Before installation, edited models are staged in the installer kit for that installation folder; choose the destination before editing models. Untouched models come from the selected PX4 release, with front and bottom RGB cameras added to the default Cessna. After installation, **Change model** opens the installed `.xovmodel` directly. Rerunning the installer reuses completed components; unchecking a component does not uninstall it.
 
 From the installer folder, launch the simulator menu:
 
@@ -75,6 +75,28 @@ Or choose both directly:
 ```
 
 `--model MODEL_KEY` skips the model prompt. Without a terminal, the launcher uses the installed default unless `--model` is supplied. Session choices leave the saved installation settings unchanged.
+
+### Default plane cameras
+
+The shared Cessna includes `camera_front` and `camera_down`, each with 1280×960 pixels, 30 Hz, a 1.74 radian horizontal field of view, and a 6000 m far clip. They attach directly to `base_link`, without changing the plane's mass, geometry or collisions. Front is 0.85 m forward and 0.15 m above the origin, with a 0.1 m near clip. Bottom is 0.10 m below the origin and points downward; its 0.01 m near clip keeps ground visible while parked. Edit their mounts and optics in **Sensors → Change model**. Upgrades add these defaults to untouched Cessna bundles; edited bundles are preserved.
+
+| Simulator | Access |
+| --- | --- |
+| Gazebo Harmonic / Jetty | Both cameras stream RTP/H.264: front UDP **5600**, bottom **5601**. The enhanced camera plugin is installed even without dynamic terrain. |
+| Isaac | Both authored cameras are discovered by the native camera extension and stream to **5600 / 5601**. Existing camera-host overrides remain available. |
+| SIH with Isaac viewer | `--camera front` or `--camera bottom`; `onboard` remains an alias for front. RTP is also available when the native Isaac camera component is installed; `--no-camera` disables streaming. Physics-only SIH has no renderer. |
+| Unreal | `--camera front` or `--camera bottom`, or keys **1** (chase), **2** (front), **3** (bottom). Authored views retain their field of view and aspect ratio. These are player views, without an RTP sender. |
+| FlightGear | `--camera front` or `--camera bottom`; the views also appear in FlightGear's view manager. Existing chase views remain available. These are viewer cameras, without an RTP sender. |
+
+Pass simulator options after `--`, for example:
+
+```bash
+"$XOVIUM_PREFIX/scripts/run.sh" unreal-engine --model cessna -- --camera bottom
+"$XOVIUM_PREFIX/scripts/run.sh" flightgear --model cessna -- --camera front
+"$XOVIUM_PREFIX/scripts/run.sh" sih --model cessna -- --camera bottom
+```
+
+For Gazebo, camera terrain is rendered in the server's Sensors scene. A missing terrain surface in the GUI scene does not indicate missing camera terrain. A camera-less model does not start that rendering scene. Use the shared Cessna above; native camera-equipped PX4 models also receive compatible streaming metadata. Custom legacy `GstCameraSystem` world settings require migration to each sensor's `GstPlaneCameraSystem` settings; the installer stops rather than discarding those explicit settings.
 
 The wizard offers **Baylands** or **dynamic_terrain**, and **Cessna**, **rover**, or **your own model**. Each choice supplies the default for every installed simulator, including simulators retained from an earlier installation. PX4's simulator-specific bundled assets remain available in its source tree. Telemetry ports can be changed under MAVLink Router → Advanced.
 
@@ -127,6 +149,27 @@ Before each simulator starts, Xovium checks the `.xovmodel` bundles under `share
 Baylands is downloaded once from pinned Gazebo Fuel releases with SHA-256 verification; its exported worlds reference local assets. Dynamic terrain uses the providers and origin in `shared/worlds/dynamic_terrain/terrain.json` and downloads tiles as needed.
 
 Isaac streams surrounding terrain while physics continues over loaded ground. It waits at startup, or when collision terrain near the vehicle is missing; distant tiles do not pause the simulation. Nearby tiles take priority, and scene changes are spread across frames.
+
+Terrain plugins are downloaded from the pinned source releases of
+[gz-dynamic-terrain-plugin](https://github.com/Xovium-Tech/gz-dynamic-terrain-plugin/releases),
+[ue-dynamic-terrain-plugin](https://github.com/Xovium-Tech/ue-dynamic-terrain-plugin/releases), and
+[isaac-dynamic-terrain-plugin](https://github.com/Xovium-Tech/isaac-dynamic-terrain-plugin/releases).
+`backend/xovium/terrain-releases.json` records the exact release assets and SHA-256
+hashes. The installer verifies each ZIP before extraction, reuses verified cached
+archives offline, and builds against the selected local simulator and SDK. It does
+not fetch an unpinned latest release or substitute local development snapshots.
+
+Managed-file ownership checks protect local edits. Existing Unreal project class
+names, shared terrain configuration and built-in disk caches remain compatible.
+Custom dataset URLs receive distinct cache identities. Standalone Isaac terrain
+never controls the application's global timeline; Xovium still waits for safe
+collision coverage. Gazebo's launch configuration is an installer-owned resource,
+so releases do not need to include development examples.
+
+Use `./install.sh --refresh-launchers` to rebuild installed integrations from the
+pinned releases. This also performs the existing launcher and bridge refresh work
+and refuses locally modified managed source/configuration. Release upgrades update
+the pins only after extracted-archive builds and simulator checks pass.
 
 Open `shared/models/cessna/model.xovmodel` or `shared/models/rover/model.xovmodel` in [Xovium Model Editor](https://github.com/Xovium-Tech/xovium-model-editor), edit it, and save to the same path. Launch Xovium normally; conversion happens before simulator/PX4 processes start. Extra bundles can live in their own folders under `shared/models`; they appear in the launcher's model menu and are converted into the simulator's model library too. Use the model key shown by `--list-models` with `--model` for scripted launches. Custom bundles use the existing fixed-wing or rover physics adapter selected by their vehicle type.
 

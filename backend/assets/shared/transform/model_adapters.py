@@ -1,5 +1,6 @@
 """Compose portable model visuals with the installer's existing vehicle adapters."""
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -7,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from geometry import matrix, multiply
 
 
 def _copy_export(source, target):
@@ -59,7 +61,82 @@ def _usd(shared, simulator, key, adapter, document, target, payload):
     (payload / (key + '.usda')).write_text(text[:closing] + '\n'.join(additions) + '\n')
 
 
-def _flightgear(shared, key, adapter, target):
+def _flightgear_camera_views(root, document):
+    """Add aircraft-mounted views using the shared model's FLU sensor poses."""
+    def transform(pose):
+        return matrix(' '.join(map(str, pose or (0, 0, 0, 0, 0, 0))))
+
+    links = {link['name']: transform(link.get('pose')) for link in document.get('links', [])}
+    sim = root.find('sim')
+    if sim is None:
+        raise ValueError('FlightGear adapter has no sim element')
+    used = {int(view.get('n', '0')) for view in sim.findall('view')}
+    camera_indices = {}
+    for sensor in document.get('sensors', []):
+        if sensor.get('type') != 'camera' or not sensor.get('enabled', True):
+            continue
+        pose = multiply(links[sensor['parent']], transform(sensor.get('pose')))
+        # Recover the equivalent FLU yaw/pitch/roll after composing the link
+        # transform. At a vertical view, absorb the indeterminate roll in yaw.
+        pitch = math.asin(max(-1.0, min(1.0, -pose[2][0])))
+        if abs(math.cos(pitch)) > 1e-9:
+            yaw, roll = math.atan2(pose[1][0], pose[0][0]), math.atan2(pose[2][1], pose[2][2])
+        else:
+            yaw, roll = math.atan2(-pose[0][1], pose[1][1]), 0.0
+        # Leave FlightGear's inherited low-numbered chase/tower views intact.
+        index = 100
+        while index in used:
+            index += 1
+        used.add(index)
+        camera_indices[sensor['name']] = index
+        view = ET.SubElement(sim, 'view', n=str(index))
+        ET.SubElement(view, 'name').text = sensor['name']
+        ET.SubElement(view, 'type').text = 'lookfrom'
+        ET.SubElement(view, 'internal', type='bool').text = 'false'
+        ET.SubElement(view, 'enabled', type='bool').text = 'true'
+        config = ET.SubElement(view, 'config')
+        ET.SubElement(config, 'from-model', type='bool').text = 'true'
+        ET.SubElement(config, 'from-model-idx', type='int').text = '0'
+        parameters = sensor.get('parameters', {})
+        hfov = next((parameters[key] for key in ('horizontal_fov', 'hfov', 'hfov_rad')
+                     if key in parameters), 1.0471975512)
+        near = next((parameters[key] for key in ('near', 'near_clip', 'clip.near')
+                     if key in parameters), 0.1)
+        # FlightGear view offsets are right/up/aft; heading is positive left,
+        # pitch positive up and roll positive right (the FLU roll convention).
+        values = {'x-offset-m': -pose[1][3], 'y-offset-m': pose[2][3], 'z-offset-m': -pose[0][3],
+                  'heading-offset-deg': math.degrees(yaw), 'pitch-offset-deg': -math.degrees(pitch),
+                  'roll-offset-deg': math.degrees(roll), 'default-field-of-view-deg': math.degrees(hfov),
+                  'ground-level-nearplane-m': near}
+        for name, value in values.items():
+            ET.SubElement(config, name, type='double').text = format(value, '.17g')
+    if camera_indices:
+        # View numbers are a dense runtime list; XML indices may be sparse.
+        # The documented Nasal view helper performs that translation after the
+        # simulator initializes its normal view manager.
+        choices = {'chase': 0}
+        if 'camera_front' in camera_indices:
+            choices.update(front=camera_indices['camera_front'], onboard=camera_indices['camera_front'])
+        if 'camera_down' in camera_indices:
+            choices['bottom'] = camera_indices['camera_down']
+        nasal = root.find('nasal')
+        if nasal is None:
+            nasal = ET.SubElement(root, 'nasal')
+        script = ET.SubElement(ET.SubElement(nasal, 'xovium_camera_views'), 'script')
+        script.text = '''
+var camera_views = ''' + json.dumps(choices) + ''';
+setlistener('/sim/signals/fdm-initialized', func {
+    if (!getprop('/sim/signals/fdm-initialized')) return;
+    settimer(func {
+        var requested = getprop('/sim/xovium/camera');
+        if (requested != nil and contains(camera_views, requested))
+            view.setViewByIndex(camera_views[requested]);
+    }, 0);
+}, 1);
+'''
+
+
+def _flightgear(shared, key, adapter, document, target):
     if not (target / 'model.ac').is_file():
         raise FileNotFoundError('Model export has no model.ac')
     template = shared / 'transform/templates/flightgear' / adapter
@@ -80,6 +157,7 @@ def _flightgear(shared, key, adapter, target):
     description = root.find('sim/description')
     if description is not None:
         description.text = 'Xovium portable model (' + adapter + ' dynamics adapter)'
+    _flightgear_camera_views(root, document)
     ET.indent(root, space='  ')
     ET.ElementTree(root).write(path, encoding='utf-8', xml_declaration=True)
 
@@ -160,7 +238,7 @@ def prepare(shared: Path, simulator: str, key: str, adapter: str, export: Path, 
     if simulator in ('isaac', 'sih'):
         _usd(shared, simulator, key, adapter, document, target, payload)
     elif simulator == 'flightgear':
-        _flightgear(shared, key, adapter, target)
+        _flightgear(shared, key, adapter, document, target)
     elif simulator == 'unreal':
         _unreal(shared, key, target, payload)
     elif not (target / 'model.sdf').is_file():
@@ -168,9 +246,9 @@ def prepare(shared: Path, simulator: str, key: str, adapter: str, export: Path, 
     sensor_runtime = {
         'gazebo': 'native SDF definitions require world systems and bridge routing',
         'isaac': 'USD cameras and sensor metadata retained; measurements require native runtime support',
-        'sih': 'USD cameras and sensor metadata retained; measurements require viewer/runtime support',
+        'sih': 'mounted RGB camera views; RTP streams when the native camera extension is installed',
         'unreal': 'camera scene entries and sensor metadata retained; sampling requires runtime components',
-        'flightgear': 'sensor mounting metadata retained; measurements require property/runtime integration',
+        'flightgear': 'mounted RGB camera views; other sensor measurements require property/runtime integration',
     }
     (target / 'adapter.json').write_text(json.dumps({
         'schema': 1, 'simulator': simulator, 'adapter': adapter,

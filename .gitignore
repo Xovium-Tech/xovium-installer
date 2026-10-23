@@ -35,3 +35,10 @@ docs/
 *.md
 !/README.md
 !/THIRD_PARTY.md
+
+# Development snapshots are optional local inputs, never installer release sources.
+/backend/assets/terrain/
+!/tests/
+!/tests/**
+/tests/__pycache__/
+*.py[cod]

@@ -24,6 +24,7 @@
 /backend -export-ignore
 /.gitmodules -export-ignore
 /tools -export-ignore
+/tools/sync_terrain_plugins.py export-ignore
 
 # Development metadata, documentation media and examples are not release inputs.
 **/.gitignore export-ignore

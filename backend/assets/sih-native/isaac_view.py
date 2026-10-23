@@ -1,4 +1,5 @@
 import argparse
+import json
 import math
 import os
 import signal
@@ -11,6 +12,53 @@ from native_receiver import MavlinkReceiver
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+
+
+def mounted_cameras(stage):
+    """Find enabled shared-model RGB cameras without relying on export paths."""
+    from pxr import UsdGeom
+
+    cameras = {}
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdGeom.Camera) or not prim.GetPath().HasPrefix('/World/Aircraft'):
+            continue
+        attribute = prim.GetAttribute('xovium:sensor')
+        if not attribute:
+            continue
+        sensor = json.loads(attribute.Get())
+        if sensor.get('type') == 'camera' and sensor.get('enabled', True):
+            cameras.setdefault(sensor['name'], str(prim.GetPath()))
+    return cameras
+
+
+def camera_path(stage, selection):
+    cameras = mounted_cameras(stage)
+    if selection == 'chase':
+        return '/World/ChaseCamera'
+    if selection in ('front', 'onboard'):
+        return cameras.get('camera_front', '/World/Aircraft/OnboardCamera')
+    if selection == 'bottom' and 'camera_down' in cameras:
+        return cameras['camera_down']
+    raise ValueError('The selected model has no enabled camera_down RGB sensor for --camera bottom')
+
+
+def enable_camera_streams(app, stage, disabled=False):
+    """Use the existing camera-only extension if this installation provides it."""
+    if disabled or not mounted_cameras(stage):
+        return None
+    extensions = PROJECT_DIR.parent / 'isaac/plugins'
+    binary = extensions / 'px4.isaac.camera/bin/libpx4.isaac.camera.plugin.so'
+    if not binary.is_file():
+        print('Mounted camera views are available. RTP streaming requires the native Isaac camera component.', flush=True)
+        return None
+    import omni.kit.app
+
+    manager = omni.kit.app.get_app().get_extension_manager()
+    manager.add_path(str(extensions))
+    app.set_setting('/px4/camera/enabled', True)
+    if not manager.set_extension_enabled_immediate('px4.isaac.camera', True):
+        raise RuntimeError('Cannot load the installed native Isaac camera extension')
+    return manager
 
 
 def check_link(receiver, duration):
@@ -74,6 +122,10 @@ def prepare_scene(stage, aircraft_usd=None):
             onboard.AddTransformOp().Set(
                 Gf.Matrix4d().SetLookAt(Gf.Vec3d(0.65, 0, 0.22), Gf.Vec3d(10, 0, 0.22), Gf.Vec3d(0, 0, 1)).GetInverse()
             )
+        # Shared cameras already own their ports. The legacy viewer camera is
+        # retained for old scenes, but must not become a third front stream.
+        if mounted_cameras(stage):
+            onboard.GetPrim().CreateAttribute('px4:camera:enabled', Sdf.ValueTypeNames.Bool).Set(False)
     return translation, orientation, chase_transform
 
 
@@ -94,6 +146,7 @@ def run_view(receiver, args):
         "extra_args": ["--/log/channels/omni.rtx=info"],
     })
     terrain = None
+    camera_extensions = None
     try:
         import omni.usd
         from omni.kit.viewport.utility import get_active_viewport
@@ -108,13 +161,16 @@ def run_view(receiver, args):
             app.set_setting("/rtx/sceneDb/ambientLightIntensity", 0.3)
         stage = context.get_stage()
         translation, orientation, chase_transform = prepare_scene(stage, args.aircraft_usd)
+        camera_extensions = enable_camera_streams(app, stage, args.no_camera)
         if os.environ.get("XOVIUM_TERRAIN_CONFIG"):
             from streamed_terrain import StreamedTerrain
             terrain = StreamedTerrain(stage, args.system_id - 1, args.origin)
         print(f"World: {world_path}", flush=True)
         viewport = get_active_viewport()
         if viewport:
-            viewport.camera_path = "/World/Aircraft/OnboardCamera" if args.camera == "onboard" else "/World/ChaseCamera"
+            viewport.camera_path = camera_path(stage, args.camera)
+        for name, path in mounted_cameras(stage).items():
+            print(f'Mounted camera {name}: {path}', flush=True)
         initial_frame = viewport.frame_info.get("frame_number") if viewport else None
         rendering = False
 
@@ -164,6 +220,9 @@ def run_view(receiver, args):
                     rendering = True
             time.sleep(max(0, frame_period - (time.monotonic() - started)))
     finally:
+        if camera_extensions:
+            app.set_setting('/px4/camera/enabled', False)
+            camera_extensions.set_extension_enabled_immediate('px4.isaac.camera', False)
         if terrain:
             terrain.close()
         app.close()
@@ -180,7 +239,9 @@ def main():
     parser.add_argument("--renderer", choices=("realtime", "minimal", "legacy"), default="realtime")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
-    parser.add_argument("--camera", choices=("chase", "onboard"), default="chase")
+    parser.add_argument("--camera", choices=("chase", "onboard", "front", "bottom"), default="chase",
+                        help='Viewer camera; onboard is a compatibility alias for front')
+    parser.add_argument("--no-camera", action="store_true", help='Disable RTP camera streaming; mounted views remain available')
     parser.add_argument("--world-usd", default=str(PROJECT_DIR / "worlds" / "baylands.usda"))
     parser.add_argument("--aircraft-usd")
     parser.add_argument("--fps", type=float, default=30.0)

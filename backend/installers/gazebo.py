@@ -1,9 +1,12 @@
 from installers.px4 import paths, environment
 from xovium.layout import simulator
+from xovium.terrain_sources import GAZEBO_BUILD, GAZEBO_SOURCE, install_source
 
 
 def resources(ctx, distro):
     base = simulator(ctx, f"gazebo-{distro}")
+    from xovium import model_tool
+    model_tool.adopt(ctx)
     source, _ = paths(ctx)
     for folder in ("models", "worlds"):
         ctx.copy_tree(source / "Tools/simulation/gz" / folder, f"simulation/gazebo-{distro}/{folder}", omit=(".git",))
@@ -12,6 +15,12 @@ def resources(ctx, distro):
     if release(ctx.config.get('px4_version', '1.16.0'))['legacy_models']:
         server = ctx.assets / 'patches/px4-1.15-server.config'
     ctx.copy_tree(server, f"simulation/gazebo-{distro}/bridge/server.config")
+    from xovium.gazebo_cameras import configure_file, configure_model_file
+    for model in (source / 'Tools/simulation/gz/models').glob('*/model.sdf'):
+        configure_model_file(ctx, base / 'models' / model.parent.name / 'model.sdf')
+    configure_file(ctx, base / 'bridge/server.config')
+    for world in (source / 'Tools/simulation/gz/worlds').glob('*.sdf'):
+        configure_file(ctx, base / 'worlds' / world.name)
     if distro == ctx.config["backend"]:
         built = source / "build/px4_sitl_default/src/modules/simulation/gz_plugins"
         for library in built.rglob("*.so"):
@@ -23,7 +32,8 @@ def gazebo_environment(ctx, distro):
     base = ctx.prefix / f"simulation/gazebo-{distro}"
     major, physics = (8, 7) if distro == "harmonic" else (10, 9)
     system = "/usr/lib/x86_64-linux-gnu"
-    plugin_path = ":".join(str(base / path) for path in ("plugins/px4", "plugins/camera/build", "plugins/terrain/build"))
+    plugin_path = ":".join(str(base / path) for path in ("plugins/px4", "plugins/camera/build",
+                             f"plugins/terrain/{GAZEBO_BUILD}", "plugins/terrain/build"))
     plugin_path += f":{system}/gz-sim-{major}/plugins"
     return {"PX4_GZ_MODELS": base / "models", "PX4_GZ_WORLDS": base / "worlds",
             "PX4_GZ_PLUGINS": base / "plugins/px4", "PX4_GZ_SERVER_CONFIG": base / "bridge/server.config",
@@ -54,6 +64,7 @@ def install(ctx, distro):
     resources(ctx, distro)
     result = launchers(ctx, distro)
     ctx.run(result[0], "sim", "--versions")
+    result.extend(camera_for(ctx, distro))
     if distro == ctx.config["backend"]:
         result.append(px4_launcher(ctx))
     return result
@@ -92,21 +103,33 @@ def plugins(ctx):
 
 
 def plugins_for(ctx, backend):
-    base = resources(ctx, backend)
+    resources(ctx, backend)
+    return camera_for(ctx, backend) + terrain_for(ctx, backend)
+
+
+def camera_for(ctx, backend):
+    """Camera support is part of every Gazebo install, including static worlds."""
     plugin_root = f"simulation/gazebo-{backend}/plugins"
     camera = ctx.clone("https://github.com/Xovium-Tech/px4-gazebo-gstreamer-camera-plugin.git", "v0.3.0",
                        plugin_root + "/camera/source", "6a2ab847fae0629b222867c09c19ca0cc77d6fdd")
-    terrain = ctx.clone("https://github.com/Xovium-Tech/gz-dynamic-terrain-plugin.git",
-                        "637a53a220e415d0a566a1cb03889939d4917c89", plugin_root + "/terrain/source")
     outputs = []
     for source, build, extra, libraries in [
         (camera, ctx.managed(plugin_root + "/camera/build"), [], ["libGstPlaneCameraSystem.so"]),
-        (terrain, ctx.managed(plugin_root + "/terrain/build"),
-         ["-DBUILD_SIMULATOR=ON", "-DBUILD_GUI=OFF"],
-         ["libgz-dynamic-terrain-core.so", "libgz-dynamic-terrain-system.so"]),
     ]:
         ctx.run("cmake", "-S", source, "-B", build, f"-DGZ_DISTRO={backend}", "-DBUILD_TESTING=OFF",
                 "-DCMAKE_BUILD_TYPE=Release", *extra, env={"CC": "/usr/bin/gcc", "CXX": "/usr/bin/g++"})
         ctx.run("cmake", "--build", build, "--parallel", ctx.options.jobs)
         outputs.extend(build / name for name in libraries)
     return outputs
+
+
+def terrain_for(ctx, backend):
+    """Build the pinned terrain source release for the selected Gazebo ABI."""
+    root = f"simulation/gazebo-{backend}/plugins/terrain"
+    source = install_source(ctx, "gazebo", root + "/" + GAZEBO_SOURCE)
+    build = ctx.managed(root + "/" + GAZEBO_BUILD)
+    ctx.run("cmake", "-S", source, "-B", build, f"-DGZ_DISTRO={backend}",
+            "-DBUILD_SIMULATOR=ON", "-DBUILD_GUI=OFF", "-DBUILD_TESTING=OFF",
+            "-DCMAKE_BUILD_TYPE=Release", env={"CC": "/usr/bin/gcc", "CXX": "/usr/bin/g++"})
+    ctx.run("cmake", "--build", build, "--parallel", ctx.options.jobs)
+    return [build / name for name in ("libgz-dynamic-terrain-core.so", "libgz-dynamic-terrain-system.so")]

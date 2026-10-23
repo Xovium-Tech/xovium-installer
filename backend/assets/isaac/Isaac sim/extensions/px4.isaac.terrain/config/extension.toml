@@ -1,12 +1,11 @@
 [package]
 title = "PX4 Native Streamed Terrain"
-version = "1.0.0"
+version = "1.1.0"
 description = "Native C++ terrain streaming, textures, collision meshes and local tile cache."
 category = "Simulation"
 
 [dependencies]
-"omni.usd" = {}
-"omni.physx" = {}
+"xovium.dynamic_terrain" = {}
 
 [[native.plugin]]
 path = "bin/*.plugin"
@@ -30,3 +29,6 @@ zoom = 14
 radius = 1
 meshCells = 32
 collision = true
+visualOuterRadiusM = 2000000.0
+visualMaxTiles = 1024
+prefetchSeconds = 2.0

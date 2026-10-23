@@ -35,6 +35,9 @@ jobs:
             libassimp-dev libpng-dev libtinyxml2-dev libarchive-dev \
             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
 
+      - name: Test pinned terrain release installation
+        run: python3 -B -m unittest discover -s tests -v
+
       - name: Create and extract the source ZIP
         run: |
           python3 -B - <<'PY'

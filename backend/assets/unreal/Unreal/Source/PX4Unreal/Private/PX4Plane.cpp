@@ -3,6 +3,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
@@ -17,6 +18,12 @@
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "InputCoreTypes.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PX4PostPhysicsComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -191,6 +198,15 @@ void APX4Plane::BeginPlay()
         UE_LOG(LogPX4Plane, Display, TEXT("Custom aircraft mesh: %s"), *CustomModel);
     }
 
+    FString CameraScene;
+    if (FParse::Value(FCommandLine::Get(), TEXT("PX4CameraScene="), CameraScene) &&
+        !LoadCameraScene(CameraScene))
+    { Fail(TEXT("Cannot load the selected model's onboard cameras.")); return; }
+    FString InitialCamera = TEXT("chase");
+    FParse::Value(FCommandLine::Get(), TEXT("PX4Camera="), InitialCamera);
+    if (!SelectCamera(FName(*InitialCamera)))
+    { Fail(FString::Printf(TEXT("The selected model has no camera '%s'."), *InitialCamera)); return; }
+
     std::string Error;
     if (!Link.listen(Port, Error))
     {
@@ -228,6 +244,134 @@ void APX4Plane::BeginPlay()
     UE_LOG(LogPX4Plane, Display, TEXT("PX4_SIM_READY hz=%.3f speed=%.2f mass=%.2f kg"),
         1.0 / StepSeconds, Speed, bRover ? ue_px4::rover_mass_kg : ue_px4::mass_kg);
 }
+
+bool APX4Plane::LoadCameraScene(const FString& ScenePath)
+{
+    FString Text;
+    TSharedPtr<FJsonObject> Scene;
+    if (!FFileHelper::LoadFileToString(Text, *ScenePath) ||
+        !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Scene) || !Scene)
+        return false;
+    const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+    if (!Scene->TryGetArrayField(TEXT("cameras"), Entries) || Entries->Num() > 256) return false;
+
+    // Scene export already composes link poses and converts FLU metres to Unreal
+    // coordinates. The sibling sensor metadata supplies the authored aspect ratio.
+    TSharedPtr<FJsonObject> Sensors;
+    TMap<FString, TSharedPtr<FJsonObject>> Metadata;
+    if (FFileHelper::LoadFileToString(Text, *FPaths::Combine(FPaths::GetPath(ScenePath), TEXT("sensors.json"))) &&
+        FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Sensors) && Sensors)
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+        if (Sensors->TryGetArrayField(TEXT("sensors"), Values))
+            for (const auto& Value : *Values)
+            {
+                const auto Sensor = Value->AsObject();
+                FString Name;
+                if (Sensor && Sensor->TryGetStringField(TEXT("name"), Name)) Metadata.Add(Name, Sensor);
+            }
+    }
+    struct Definition { FName Name; FVector Position; FQuat Rotation; float Fov, Aspect, Near; };
+    TArray<Definition> Definitions;
+    TSet<FName> Names;
+    for (const auto& Entry : *Entries)
+    {
+        const auto Object = Entry->AsObject();
+        FString Name;
+        double Fov = 0;
+        const TArray<TSharedPtr<FJsonValue>> *Position = nullptr, *Rotation = nullptr;
+        if (!Object || !Object->TryGetStringField(TEXT("name"), Name) || Name.IsEmpty() ||
+            !Object->TryGetNumberField(TEXT("fov"), Fov) || !FMath::IsFinite(Fov) || Fov <= 0 || Fov >= 180 ||
+            !Object->TryGetArrayField(TEXT("position"), Position) || Position->Num() != 3 ||
+            !Object->TryGetArrayField(TEXT("quaternion_wxyz"), Rotation) || Rotation->Num() != 4)
+            return false;
+        double P[3], Q[4];
+        for (int32 I=0; I<3; ++I)
+            if (!(*Position)[I]->TryGetNumber(P[I]) || !FMath::IsFinite(P[I])) return false;
+        for (int32 I=0; I<4; ++I)
+            if (!(*Rotation)[I]->TryGetNumber(Q[I]) || !FMath::IsFinite(Q[I])) return false;
+        FQuat Quaternion(Q[1], Q[2], Q[3], Q[0]);
+        if (Quaternion.SizeSquared() < SMALL_NUMBER) return false;
+        Quaternion.Normalize();
+        double Width=4, Height=3, Near=0.1;
+        if (const auto* Sensor = Metadata.Find(Name))
+        {
+            FString Kind;
+            if ((*Sensor)->TryGetStringField(TEXT("type"), Kind) && Kind != TEXT("camera")) continue;
+            bool Enabled = true;
+            (*Sensor)->TryGetBoolField(TEXT("enabled"), Enabled);
+            if (!Enabled) continue;
+            const TSharedPtr<FJsonObject>* Parameters = nullptr;
+            if ((*Sensor)->TryGetObjectField(TEXT("parameters"), Parameters))
+            {
+                (*Parameters)->TryGetNumberField(TEXT("width"), Width);
+                (*Parameters)->TryGetNumberField(TEXT("height"), Height);
+                (*Parameters)->TryGetNumberField(TEXT("near"), Near);
+            }
+        }
+        const FName Key(*Name);
+        if (Key == TEXT("chase") || Names.Contains(Key) || !FMath::IsFinite(Width) ||
+            !FMath::IsFinite(Height) || Width <= 0 || Height <= 0 || !FMath::IsFinite(Near) || Near <= 0)
+            return false;
+        Names.Add(Key);
+        Definitions.Add({Key, FVector(P[0],P[1],P[2]), Quaternion,
+                         static_cast<float>(Fov), static_cast<float>(Width/Height), static_cast<float>(Near*100)});
+    }
+    SelectCamera(TEXT("chase"));
+    for (auto& Pair : OnboardCameras) Pair.Value->DestroyComponent();
+    OnboardCameras.Empty(); CameraNearClip.Empty();
+    for (const auto& Definition : Definitions)
+    {
+        auto* Component = NewObject<UCameraComponent>(this, MakeUniqueObjectName(this,
+            UCameraComponent::StaticClass(), Definition.Name));
+        AddInstanceComponent(Component);
+        Component->SetupAttachment(Body);
+        Component->SetRelativeLocationAndRotation(Definition.Position, Definition.Rotation);
+        Component->FieldOfView = Definition.Fov;
+        Component->AspectRatio = Definition.Aspect;
+        Component->bConstrainAspectRatio = true;
+        Component->bOverrideAspectRatioAxisConstraint = true;
+        Component->AspectRatioAxisConstraint = AspectRatio_MaintainXFOV;
+        Component->bAutoActivate = false;
+        Component->RegisterComponent();
+        Component->SetActive(false);
+        OnboardCameras.Add(Definition.Name, Component);
+        CameraNearClip.Add(Definition.Name, Definition.Near);
+        UE_LOG(LogPX4Plane, Display, TEXT("Onboard camera %s: location=%s direction=%s HFOV=%.4f aspect=%.4f"),
+               *Definition.Name.ToString(), *Definition.Position.ToString(),
+               *Definition.Rotation.GetForwardVector().ToString(), Definition.Fov, Definition.Aspect);
+    }
+    return true;
+}
+
+bool APX4Plane::SelectCamera(FName Name)
+{
+    if (Name == TEXT("front")) Name = TEXT("camera_front");
+    if (Name == TEXT("bottom") || Name == TEXT("down")) Name = TEXT("camera_down");
+    if (Name != TEXT("chase") && !OnboardCameras.Contains(Name)) return false;
+    Camera->SetActive(Name == TEXT("chase"));
+    for (auto& Pair : OnboardCameras) Pair.Value->SetActive(Pair.Key == Name);
+    SelectedCamera = Name;
+    UE_LOG(LogPX4Plane, Display, TEXT("Camera view: %s (1 chase, 2 front, 3 bottom)"), *Name.ToString());
+    return true;
+}
+
+void APX4Plane::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
+{
+    Super::CalcCamera(DeltaTime, OutResult);
+    if (const float* Near = CameraNearClip.Find(SelectedCamera)) OutResult.PerspectiveNearClipPlane = *Near;
+}
+
+void APX4Plane::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+    Super::SetupPlayerInputComponent(PlayerInputComponent);
+    PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &APX4Plane::ChaseView);
+    PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &APX4Plane::FrontView);
+    PlayerInputComponent->BindKey(EKeys::Three, IE_Pressed, this, &APX4Plane::BottomView);
+}
+void APX4Plane::ChaseView() { SelectCamera(TEXT("chase")); }
+void APX4Plane::FrontView() { SelectCamera(TEXT("camera_front")); }
+void APX4Plane::BottomView() { SelectCamera(TEXT("camera_down")); }
 
 void APX4Plane::ConfigureRover()
 {

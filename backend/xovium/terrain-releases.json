@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "plugins": {
+    "gazebo": {
+      "repository": "Xovium-Tech/gz-dynamic-terrain-plugin",
+      "tag": "v0.3.0",
+      "asset": "gz-dynamic-terrain-plugin-v0.3.0.zip",
+      "sha256": "fada69e97250b463f66598b635bb1abf825ee0d783efedbbeab0b17b0a6dd0a3"
+    },
+    "unreal": {
+      "repository": "Xovium-Tech/ue-dynamic-terrain-plugin",
+      "tag": "v0.3.0",
+      "asset": "ue-dynamic-terrain-plugin-v0.3.0.zip",
+      "sha256": "5e6d1e998f8711b08afe1631a5afa71ab4288d16dd5534fdb0ec5b1d61c4a4c7"
+    },
+    "isaac": {
+      "repository": "Xovium-Tech/isaac-dynamic-terrain-plugin",
+      "tag": "v1.1.0",
+      "asset": "isaac-dynamic-terrain-plugin-v1.1.0.zip",
+      "sha256": "0fa0d7d19cd5c8b672b690e861d3f50e5376d517d1702f98dd2080306790232b"
+    }
+  }
+}
